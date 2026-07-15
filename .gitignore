@@ -1,0 +1,11 @@
+# Source data for rebuilding the language pack. Downloaded on demand (see
+# README), never committed -- ecdict.csv alone is 63 MB, and the built
+# inlinehints_en.sqlite3 that ships is 1.7 MB.
+ecdict.csv
+cefrj.csv
+octanove.csv
+*.7z
+
+# SQLite sidecars, if the language pack is ever opened here for a look.
+*.sqlite3-wal
+*.sqlite3-shm

@@ -1,0 +1,682 @@
+local Event = require("ui/event")
+local Gloss = require("inlinehints_gloss")
+local InfoMessage = require("ui/widget/infomessage")
+local Overlay = require("inlinehints_overlay")
+local Settings = require("inlinehints_settings")
+local Trapper = require("ui/trapper")
+local UIManager = require("ui/uimanager")
+local WidgetContainer = require("ui/widget/container/widgetcontainer")
+local Diagnostics = require("inlinehints_diagnostics")
+local Engine = require("inlinehints_engine")
+local logger = require("logger")
+local _ = require("gettext")
+local T = require("ffi/util").template
+
+-- Lines are set solid, so a gloss drawn between them would land on top of the
+-- text above. Opening the leading is the only way to make room, and a plugin
+-- can do it without touching the core: ReaderTypeset hands the document a
+-- stylesheet plus the style tweaks, and we append to that.
+local GAP_CSS = [[
+p, li, dd, dt, blockquote { line-height: 2 !important; }
+]]
+
+-- How long to wait after a page settles before working out the next one. Long
+-- enough that a reader flipping through pages never triggers it, short enough
+-- to be done before anyone finishes reading a page.
+local PREPARE_DELAY_S = 2
+
+-- How many pages either side of the reader to keep prepared. Pages already
+-- read are kept rather than thrown away: turning back to re-read a sentence is
+-- common, and the work is already done. Each entry is a handful of words and
+-- their xpointers, so a small window costs nothing.
+local PREPARE_WINDOW = 2
+
+local InlineHints = WidgetContainer:extend{
+    name = "inlinehints",
+    is_doc_only = true,
+}
+
+function InlineHints:init()
+    -- Pages worked out ahead of time, keyed by page number. Set up here because
+    -- onReadSettings can switch the overlay on, and the first PosUpdate that
+    -- follows reads this before anything else has had a chance to create it.
+    self.prepared = {}
+
+    -- PluginLoader sets .path on the plugin module; the language pack sits
+    -- next to this file, and submodules have no other way to find it.
+    Engine.setPluginPath(self.path)
+    Engine.setMinLevel(Settings:readSetting("min_level"))
+    Gloss.setMaxTerms(Settings:readSetting("max_terms"))
+    self.ui.menu:registerToMainMenu(self)
+end
+
+--[[--
+The dictionaries to take meanings from, in the order they'll be tried.
+
+Order is KOReader's own: the reader already has a screen for arranging
+dictionaries, and enabled_dict_names reflects it, so this only filters. That
+filtering matters -- one reader's order ran Babylon English-Turkish first but
+WordNet second, so an English definition could win over the Turkish
+dictionaries further down. Which dictionaries make sense as a source is not
+something we can infer: .ifo files only carry a language tag when KOReader
+downloaded them itself, and hand-installed ones have none.
+
+Deliberately one list for all books, not one per book. The case for per-book --
+a reader with English and German books wanting different dictionaries -- can't
+arise while the language pack is English-only, and within one language the
+ordered fallback already covers it: a specialist dictionary can sit in the list
+and only wins when the ones before it have nothing short to say. When other
+source languages do arrive, the setting to have is per *language*, which the
+book itself tells us and which needs no interface at all.
+]]
+function InlineHints:getGlossDicts()
+    local enabled = self.ui.dictionary and self.ui.dictionary.enabled_dict_names or {}
+    local excluded = Settings:readSetting("excluded_dicts") or {}
+    local dicts = {}
+    for i = 1, #enabled do
+        if not excluded[enabled[i]] then
+            dicts[#dicts + 1] = enabled[i]
+        end
+    end
+    return dicts
+end
+
+function InlineHints:onReaderReady()
+    self.overlay = Overlay:new{}
+    self.ui.view:registerViewModule("inlinehints", self.overlay)
+    -- The record of which words appear in lower case is about this book's prose,
+    -- so it must not carry over: one book's character names would license
+    -- hinting the same words in the next. Keyed by file, so reopening this book
+    -- -- or toggling hints, which reloads it -- keeps what we already know.
+    Engine.resetCensus(self.ui.document.file)
+end
+
+--[[--
+Makes the document add our line-height to every stylesheet it is ever given.
+
+Appending once isn't enough. Anything that re-applies the stylesheet drops our
+gap and leaves the hints drawing into the line above -- and the obvious hook is
+closed to us, because ReaderTypeset:onApplyStyleSheet returns true, which stops
+the event before any plugin sees it (widgetcontainer.lua:83). Changing a style
+tweak with hints on did exactly that.
+
+So intercept the document's own method instead of chasing the callers. This is
+one well-defined point that every path goes through -- ReaderTypeset's initial
+setup, style tweaks, a stylesheet change -- and it is set on the document
+instance, so it goes away with the document rather than patching anything.
+]]
+function InlineHints:hookStyleSheet()
+    local doc = self.ui.document
+    if doc.inlinehints_hooked then
+        return
+    end
+    doc.inlinehints_hooked = true
+
+    local setStyleSheet = doc.setStyleSheet
+    doc.setStyleSheet = function(document, css, tweaks_css)
+        if self.overlay_enabled then
+            tweaks_css = (tweaks_css or "") .. "\n" .. GAP_CSS
+        end
+        return setStyleSheet(document, css, tweaks_css)
+    end
+end
+
+--[[--
+Re-applies the stylesheet so the gap appears or disappears.
+
+Re-read rather than remembered: the base sheet and the style tweaks can both
+have changed under us, and writing back a stale copy would quietly revert the
+reader's own choices. The gap itself is added by the hook above.
+
+`initial` means we are still setting the document up and nothing has rendered
+yet, so there is no re-render to ask for.
+]]
+function InlineHints:applyGapCss(initial)
+    local tweaks = self.ui.styletweak and self.ui.styletweak:getCssText() or ""
+    self.ui.document:setStyleSheet(self.ui.typeset.css, tweaks)
+    if not initial then
+        -- Re-render: the page's line positions have just changed.
+        self.ui:handleEvent(Event:new("UpdatePos"))
+    end
+end
+
+--[[--
+Applies the gap before the document is rendered, when the setting is on.
+
+This timing is the whole point. ReaderUI fires ReadSettings (readerui.lua:461)
+and only then runs postInitCallback (:463), where ReaderRolling records the
+document's rendering hash. Injecting here means the hash is taken *with* our
+line-height in it, so the engine never sees the stylesheet change.
+
+Changing it later is what caused the "book closes and reopens" reports: a
+rendering change starts crengine's rerender-and-reload automation
+(readerrolling.lua:1815), which fully re-renders in a subprocess and then
+reloads the document once the reader has been idle for 5s. Nothing was
+crashing -- that is KOReader working as designed, and the same thing it does
+for any style change. The reload just took the overlay with it, because the
+setting didn't survive.
+]]
+function InlineHints:onReadSettings(config)
+    self.overlay_enabled = config:isTrue("inlinehints_enabled")
+    -- Hooked whether or not hints are on: the hook checks overlay_enabled each
+    -- time, and installing it later would miss the stylesheet ReaderTypeset has
+    -- already applied by now.
+    self:hookStyleSheet()
+    if self.overlay_enabled then
+        self:applyGapCss(true)
+    end
+end
+
+function InlineHints:onSaveSettings()
+    self.ui.doc_settings:saveSetting("inlinehints_enabled", self.overlay_enabled or nil)
+end
+
+function InlineHints:onCloseWidget()
+    Engine.closeDatabases()
+end
+
+function InlineHints:setOverlayEnabled(enabled)
+    self.overlay_enabled = enabled
+    self.glossed_page = nil
+    self.prepared = {}
+    self.overlay:setGlosses({})
+    -- Persist before the reload below: reloadDocument saves settings, but the
+    -- flag has to be in doc_settings for the reopened document to come back
+    -- with the gap already applied.
+    self.ui.doc_settings:saveSetting("inlinehints_enabled", enabled or nil)
+
+    -- Reload rather than just re-render. The line-height has changed either
+    -- way, so crengine will re-render and reload on its own several seconds
+    -- from now; doing it ourselves makes it immediate and predictable, and the
+    -- reopened document applies the gap in onReadSettings, before the hash is
+    -- taken -- so it settles instead of reloading again.
+    self.ui:reloadDocument(nil, true)
+end
+
+--[[--
+Recomputes the glosses for the page now on screen.
+
+Guarded twice, and both guards are load-bearing. PosUpdate fires far more often
+than the page actually changes -- during re-rendering, and repeatedly while
+paging -- and each refresh forks an sdcv process. Left unguarded they pile up:
+the reader crashed with no Lua traceback, which is what running out of memory
+looks like from here.
+
+Deferred to the next tick because this runs from a render-time event, while the
+lookup shells out through Trapper, which must not happen mid-paint.
+]]
+function InlineHints:refreshGlosses()
+    if not self.overlay_enabled or self.refreshing then
+        return
+    end
+    local page = self.ui.document:getCurrentPage()
+    if page == self.glossed_page then
+        return -- nothing moved; the glosses on screen are already right
+    end
+
+    -- Already worked out, either read ahead while the reader was on the previous
+    -- page, or still remembered from when they were last on this one. Then the
+    -- page turn only has to ask where the words are, which takes milliseconds,
+    -- and the hints land in the same screen refresh as the page instead of
+    -- flashing in a third of a second later.
+    local ready = self.prepared[page]
+    if ready then
+        self:drawPrepared(ready)
+        self:prepareNextPage()
+        return
+    end
+
+    self.refreshing = true
+    UIManager:nextTick(function()
+        Trapper:wrap(function()
+            local ok, prepared = pcall(Engine.preparePage, self.ui, page, self:getGlossDicts())
+            self.refreshing = false
+            if not ok then
+                logger.warn("InlineHints: page prepare failed:", prepared)
+                return
+            end
+            -- The reader may have turned the page while sdcv was running.
+            if self.ui.document:getCurrentPage() ~= page then
+                self:refreshGlosses()
+                return
+            end
+            self:rememberPrepared(prepared)
+            self:drawPrepared(prepared)
+            self:prepareNextPage()
+        end)
+    end)
+end
+
+--[[--
+Keeps a prepared page, and forgets any that the reader has left well behind.
+
+Bounded by distance from the reader rather than by count, so it holds on to the
+page just turned away from -- going back one page to re-read a sentence is
+common, and that page's work is already done.
+]]
+function InlineHints:rememberPrepared(prepared)
+    if not prepared then
+        return
+    end
+    self.prepared[prepared.page] = prepared
+    local current = self.ui.document:getCurrentPage()
+    for page in pairs(self.prepared) do
+        if math.abs(page - current) > PREPARE_WINDOW then
+            self.prepared[page] = nil
+        end
+    end
+end
+
+--[[--
+Positions a prepared page's hints and puts them on screen.
+
+The boxes are resolved here and nowhere earlier: they are screen coordinates,
+and the engine only knows them for the page it has rendered.
+]]
+function InlineHints:drawPrepared(prepared)
+    -- Re-read each time: the reader can change the font size while the book is
+    -- open, and it decides where inside its line box a word's letters sit.
+    self.overlay.text_height = self.ui.document:getFontSize()
+
+    local glosses = Engine.resolveBoxes(self.ui.document, prepared)
+    logger.dbg("InlineHints: drawing", #glosses, "hints on page", prepared and prepared.page)
+    self.glossed_page = self.ui.document:getCurrentPage()
+    self.overlay:setGlosses(glosses)
+    UIManager:setDirty(self.view.dialog, "partial")
+end
+
+--[[--
+Works out the next page's hints while the reader is still on this one.
+
+The walk costs ~140ms and a cold cache adds an sdcv call on top; none of it
+needs the screen, so it can all happen during the half-minute the reader spends
+on a page. Scheduled rather than immediate so the current page finishes drawing
+first -- and skipped entirely if the reader has already moved on, which is also
+what stops a fast page-flipper from queueing up work.
+]]
+function InlineHints:prepareNextPage()
+    if not self.overlay_enabled then
+        return
+    end
+    local next_page = self.ui.document:getCurrentPage() + 1
+    if self.prepared[next_page] then
+        return
+    end
+
+    UIManager:scheduleIn(PREPARE_DELAY_S, function()
+        if not self.overlay_enabled or self.refreshing then
+            return
+        end
+        if self.ui.document:getCurrentPage() + 1 ~= next_page then
+            return -- reader moved; whatever we'd prepare is for the wrong page
+        end
+        self.refreshing = true
+        Trapper:wrap(function()
+            local ok, prepared = pcall(Engine.preparePage, self.ui, next_page, self:getGlossDicts())
+            self.refreshing = false
+            if ok then
+                self:rememberPrepared(prepared)
+            end
+        end)
+    end)
+end
+
+--[[--
+Forgets everything prepared, because page numbers no longer mean what they did.
+
+A re-render -- a font size change, say -- reflows the book, so page 50 now holds
+different text. The stored xpointers survive (they are DOM positions), but they
+are filed under the wrong page numbers, and hints would go missing on whichever
+page happened to match.
+]]
+function InlineHints:onDocumentRerendered()
+    self.prepared = {}
+    self.glossed_page = nil
+    self:refreshGlosses()
+end
+
+--[[--
+Throws away the glosses on screen and works them out again.
+
+For settings changes: unlike a page turn, the page is the same, so the
+"already glossed this page" guard would otherwise refuse to redo it.
+]]
+function InlineHints:invalidateGlosses()
+    self.glossed_page = nil
+    -- The prepared page was worked out under the old settings, so it would
+    -- happily draw the answer the reader just changed away from.
+    self.prepared = {}
+    self:refreshGlosses()
+end
+
+--[[--
+Drops the glosses the moment the page moves.
+
+Their boxes are screen coordinates for the page that just left, so painting
+them over the new one would put words in the wrong places.
+]]
+function InlineHints:onPageChanged()
+    if self.glossed_page ~= nil then
+        self.glossed_page = nil
+        self.overlay:setGlosses({})
+    end
+    self:refreshGlosses()
+end
+
+InlineHints.onPosUpdate = InlineHints.onPageChanged
+InlineHints.onPageUpdate = InlineHints.onPageChanged
+
+--[[--
+Builds the "how many words" chooser.
+
+Labelled by what the reader gets rather than by the number stored: "level 5"
+tells them nothing, "only the rarest words" tells them everything.
+]]
+function InlineHints:genLevelMenu()
+    local labels = {
+        [5] = _("Only the rarest words"),
+        [4] = _("Rare words"),
+        [3] = _("Rare and uncommon words"),
+        [2] = _("Uncommon words too"),
+        [1] = _("Even fairly ordinary words"),
+        [0] = _("As many as possible"),
+    }
+    local items = {}
+    for level = 5, 0, -1 do
+        items[#items + 1] = {
+            text = labels[level],
+            radio = true,
+            checked_func = function()
+                return (Settings:readSetting("min_level")
+                        or Engine.DEFAULT_MIN_LEVEL) == level
+            end,
+            callback = function()
+                Settings:saveSetting("min_level", level)
+                Settings:flush()
+                Engine.setMinLevel(level)
+                self:invalidateGlosses()
+            end,
+        }
+    end
+    return items
+end
+
+function InlineHints:genLengthMenu()
+    local labels = {
+        [1] = _("One meaning"),
+        [2] = _("Up to two meanings"),
+        [3] = _("Up to three meanings"),
+    }
+    local items = {}
+    for terms = 1, 3 do
+        items[terms] = {
+            text = labels[terms],
+            radio = true,
+            checked_func = function()
+                return (Settings:readSetting("max_terms")
+                        or Gloss.DEFAULT_MAX_TERMS) == terms
+            end,
+            callback = function()
+                Settings:saveSetting("max_terms", terms)
+                Settings:flush()
+                Gloss.setMaxTerms(terms)
+                self:invalidateGlosses()
+            end,
+        }
+    end
+    return items
+end
+
+function InlineHints:genDictionaryMenu()
+    local enabled = self.ui.dictionary and self.ui.dictionary.enabled_dict_names or {}
+    if #enabled == 0 then
+        return { { text = _("No dictionary enabled"), enabled = false } }
+    end
+    local items = {
+        {
+            text = _("Tried in this order, first usable meaning wins"),
+            enabled = false,
+            separator = true,
+        },
+    }
+    for i = 1, #enabled do
+        local dict_name = enabled[i]
+        items[#items + 1] = {
+            text = dict_name,
+            checked_func = function()
+                local excluded = Settings:readSetting("excluded_dicts") or {}
+                return not excluded[dict_name]
+            end,
+            callback = function()
+                local excluded = Settings:readSetting("excluded_dicts") or {}
+                excluded[dict_name] = not excluded[dict_name] or nil
+                Settings:saveSetting("excluded_dicts", excluded)
+                Settings:flush()
+                self:invalidateGlosses()
+            end,
+        }
+    end
+    return items
+end
+
+--[[--
+Tools for working out why a page looks the way it does.
+
+Kept apart from the settings because nothing here is part of reading: they
+report timings and dump raw dictionary entries to the log. A reader never needs
+them; when a meaning comes out wrong, they are the only way to find out where.
+]]
+function InlineHints:genDiagnosticsMenu()
+    local enabled = self.ui.dictionary and self.ui.dictionary.enabled_dict_names or {}
+    local per_dict = {}
+    for i = 1, #enabled do
+        local dict_name = enabled[i]
+        per_dict[i] = {
+            text = dict_name,
+            keep_menu_open = true,
+            callback = function()
+                Trapper:wrap(function()
+                    self:dumpGlosses({ dict_name })
+                end)
+            end,
+        }
+    end
+
+    return {
+        {
+            -- The same set the overlay uses, so this explains what is actually
+            -- on the page rather than something adjacent to it.
+            text = _("Show meanings for this page"),
+            keep_menu_open = true,
+            callback = function()
+                Trapper:wrap(function()
+                    self:dumpGlosses(self:getGlossDicts())
+                end)
+            end,
+        },
+        {
+            text = _("Try one dictionary on its own"),
+            enabled_func = function() return #per_dict > 0 end,
+            sub_item_table = per_dict,
+            separator = true,
+        },
+        {
+            text = _("Benchmark this page"),
+            keep_menu_open = true,
+            callback = function()
+                -- rawSdcv() runs sdcv through Trapper:dismissablePopen(), which
+                -- only works inside a Trapper coroutine.
+                Trapper:wrap(function()
+                    self:runBenchmark()
+                end)
+            end,
+        },
+    }
+end
+
+function InlineHints:addToMainMenu(menu_items)
+    menu_items.inlinehints = {
+        text = _("Inline Hints"),
+        sorting_hint = "tools",
+        sub_item_table = {
+            {
+                text = _("Show hints while reading"),
+                checked_func = function()
+                    return self.overlay_enabled == true
+                end,
+                callback = function()
+                    self:setOverlayEnabled(not self.overlay_enabled)
+                end,
+                separator = true,
+            },
+            {
+                text = _("Settings"),
+                sub_item_table = {
+                    {
+                        text = _("Which words get a hint"),
+                        sub_item_table_func = function() return self:genLevelMenu() end,
+                    },
+                    {
+                        text = _("How long a hint may be"),
+                        sub_item_table_func = function() return self:genLengthMenu() end,
+                    },
+                    {
+                        text = _("Dictionaries to take meanings from"),
+                        sub_item_table_func = function() return self:genDictionaryMenu() end,
+                    },
+                },
+            },
+            {
+                text = _("Diagnostics"),
+                sub_item_table_func = function() return self:genDiagnosticsMenu() end,
+            },
+        },
+    }
+end
+
+local function forLog(text, max_len)
+    if not text then return "(none)" end
+    text = text:gsub("\n", "\\n")
+    if #text > max_len then
+        return text:sub(1, max_len) .. "..."
+    end
+    return text
+end
+
+function InlineHints:dumpGlosses(dict_names)
+    local dump, err = Diagnostics.dumpGlosses(self.ui, 12, dict_names)
+    if not dump then
+        UIManager:show(InfoMessage:new{ text = err })
+        return
+    end
+
+    -- The popup shows whether the glosses are usable; the log shows why, so a
+    -- bad one can be traced back through the extraction stages.
+    logger.info("InlineHints gloss dump, dictionaries:", table.concat(dump.dicts, " > "))
+    for i = 1, #dump.entries do
+        local e = dump.entries[i]
+        logger.info(string.format(
+            "InlineHints [%s] lemma=%s level=%s\n  gloss: %s (from %s%s)\n  raw:   %s\n  plain: %s\n  sense: %s",
+            e.word, tostring(e.lemma), tostring(e.level),
+            forLog(e.gloss, 100), tostring(e.from), e.fell_back and ", FALLBACK" or "",
+            forLog(e.raw, 400),
+            forLog(e.plain, 300),
+            forLog(e.sense, 200)))
+    end
+
+    local lines = { T(_("Glosses from: %1"), table.concat(dump.dicts, " > ")), "" }
+    local with_gloss, fallbacks = 0, 0
+    for i = 1, #dump.entries do
+        local e = dump.entries[i]
+        -- Show the base form when it differs: that's what was looked up, and
+        -- seeing it is how we tell a lemma bug from a dictionary gap.
+        local label = e.word
+        if e.lemma and e.lemma ~= e.word then
+            label = T(_("%1 (%2)"), e.word, e.lemma)
+        end
+        if e.gloss then
+            with_gloss = with_gloss + 1
+            if e.fell_back then
+                fallbacks = fallbacks + 1
+                lines[#lines + 1] = T(_("%1 → %2 *"), label, e.gloss)
+            else
+                lines[#lines + 1] = T(_("%1 → %2"), label, e.gloss)
+            end
+        elseif not e.found then
+            lines[#lines + 1] = T(_("%1 → (not in dictionary)"), label)
+        else
+            lines[#lines + 1] = T(_("%1 → (no short gloss)"), label)
+        end
+    end
+    lines[#lines + 1] = ""
+    lines[#lines + 1] = T(_("%1 of %2 usable"), with_gloss, #dump.entries)
+    if fallbacks > 0 then
+        lines[#lines + 1] = T(_("* %1 rescued by a fallback dictionary"), fallbacks)
+    end
+    -- Without this a page with no glosses is unreadable as a result: an easy
+    -- page and an over-eager name filter look identical.
+    if #dump.dropped_names > 0 then
+        lines[#lines + 1] = T(_("Dropped as names: %1"), table.concat(dump.dropped_names, ", "))
+    end
+
+    UIManager:show(InfoMessage:new{ text = table.concat(lines, "\n") })
+end
+
+function InlineHints:runBenchmark()
+    local report, err = Diagnostics.run(self.ui)
+    if not report then
+        UIManager:show(InfoMessage:new{ text = err })
+        return
+    end
+
+    logger.info("InlineHints probe:", report)
+
+    local text = T(_([[Inline Hints page benchmark
+
+Words on page: %1
+Difficult candidates: %2 (boxes: %3)%4
+
+Word walk: %5 ms
+Level filter: %6 ms
+Word boxes: %7 ms
+Page work total: %8 ms]]),
+        report.word_count,
+        report.candidate_count,
+        report.boxes_found,
+        report.have_pack and "" or _("\nWARNING: language pack missing, using a length guess"),
+        string.format("%.1f", report.walk_ms),
+        string.format("%.1f", report.filter_ms),
+        string.format("%.1f", report.boxes_ms),
+        string.format("%.1f", report.page_ms))
+
+    if report.cold then
+        text = text .. T(_("\n\nsdcv, 1 dict (%1)\n  cold, %2 words: %3 ms"),
+            report.first_dict,
+            report.candidate_count,
+            string.format("%.1f", report.cold.ms))
+
+        -- Not "for _, result": that would shadow gettext's _ inside the loop.
+        for i = 1, #(report.sweep or {}) do
+            local result = report.sweep[i]
+            text = text .. T(_("\n  warm, %1 words: %2 ms (%3 found)"),
+                result.n,
+                string.format("%.1f", result.ms),
+                result.found)
+        end
+    end
+
+    if report.all_dicts then
+        text = text .. T(_("\n\nsdcv, all %1 dicts\n  warm, %2 words: %3 ms"),
+            report.dict_count,
+            report.candidate_count,
+            string.format("%.1f", report.all_dicts.ms))
+    end
+
+    if report.candidate_count > 0 and not report.cold then
+        text = text .. "\n\n" .. _("No dictionary lookups ran. Is a StarDict dictionary installed and enabled?")
+    end
+
+    UIManager:show(InfoMessage:new{ text = text })
+end
+
+return InlineHints

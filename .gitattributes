@@ -1,0 +1,8 @@
+# This plugin is developed on Windows and runs on Linux e-readers, so keep LF
+# in the repository and in the working copy whatever core.autocrlf says.
+* text=auto eol=lf
+
+# Never let line-ending conversion near the language pack. Git detects it as
+# binary today, but that is a guess about its first few KB, and a wrong guess
+# would corrupt it quietly.
+*.sqlite3 binary
