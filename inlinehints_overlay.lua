@@ -23,6 +23,17 @@ local RenderText = require("ui/rendertext")
 local Size = require("ui/size")
 local Widget = require("ui/widget/widget")
 
+-- Hints speak whatever language the reader's dictionaries do, and Arabic
+-- answers drawn with renderUtf8Text come out as isolated left-to-right
+-- letters: plain UTF-8 painting knows nothing of joining or direction.
+-- KOReader ships a real shaping engine -- libkoreader-xtext, HarfBuzz for
+-- the glyph forms and FriBidi for the order, the same pair TextBoxWidget
+-- uses -- so when it is present (it always is on a reader), shape the gloss
+-- into positioned glyphs and paint those. Absent (desktop tests), the old
+-- UTF-8 path stays as the fallback.
+local xtext_ok, xtext = pcall(require, "libs/libkoreader-xtext")
+local shaped_cache = {}
+
 local Overlay = Widget:extend{
     -- Array of { text = <gloss>, box = <Geom, screen coords> }.
     glosses = nil,
@@ -52,6 +63,57 @@ end
 function Overlay:init()
     self.glosses = self.glosses or {}
     self.placed = {}
+end
+
+--[[--
+Shapes one gloss into positioned glyphs, ready to blit.
+
+Returns { width, y_top, glyphs = {bb, l, t, x0, y_offset} } or nil when there
+is no shaping engine. x0 is the glyph's own advance position along the line
+(FriBidi has already put right-to-left runs in visual order, so drawing left
+to right over x0 is correct), y_top the tallest ascent -- the same figure
+sizeUtf8Text reports as y_top for the plain path. Cached: the same short
+gloss recurs on every page turn, and shaping costs a HarfBuzz run each time.
+]]
+function Overlay:shapeText(face, text)
+    if not xtext_ok then
+        return nil
+    end
+    local key = face.hash .. "|" .. text
+    local hit = shaped_cache[key]
+    if hit ~= nil then
+        return hit or nil -- false: a cached failure
+    end
+    local ok, shaped = pcall(function()
+        local X = xtext.new(text, face, true) -- auto paragraph direction
+        X:measure()
+        local line = X:shapeLine(1, #text + 1)
+        local out = { width = tonumber(line.width) or 0, y_top = 0, glyphs = {} }
+        for _, xg in ipairs(line.xglyphs or line) do
+            if not xg.no_drawing then
+                local gface = face.getFallbackFont(xg.font_num)
+                local glyph = gface and RenderText:getGlyphByIndex(gface, xg.glyph, false)
+                if glyph and glyph.bb then
+                    local x_end = (xg.x0 or 0) + (xg.x_advance or 0)
+                    if x_end > out.width then
+                        out.width = x_end
+                    end
+                    if glyph.t > out.y_top then
+                        out.y_top = glyph.t
+                    end
+                    out.glyphs[#out.glyphs + 1] = {
+                        bb = glyph.bb, l = glyph.l, t = glyph.t,
+                        x0 = (xg.x0 or 0) + (xg.x_offset or 0),
+                        y_offset = xg.y_offset or 0,
+                    }
+                end
+            end
+        end
+        return out
+    end)
+    shaped = ok and shaped or nil
+    shaped_cache[key] = shaped or false -- also cache failures: don't re-crash
+    return shaped
 end
 
 function Overlay:setGlosses(glosses)
@@ -128,7 +190,14 @@ function Overlay:layout(face, max_x)
     -- so it identifies the line without any tolerance games.
     local lines, order = {}, {}
     for _, g in ipairs(self.glosses) do
-        local size = RenderText:sizeUtf8Text(0, max_x, face, g.text, true, false)
+        local shaped = self:shapeText(face, g.text)
+        local w, y_top
+        if shaped then
+            w, y_top = shaped.width, shaped.y_top
+        else
+            local size = RenderText:sizeUtf8Text(0, max_x, face, g.text, true, false)
+            w, y_top = size.x, size.y_top
+        end
         local key = g.box.y
         if not lines[key] then
             lines[key] = {}
@@ -136,7 +205,7 @@ function Overlay:layout(face, max_x)
         end
         table.insert(lines[key], {
             text = g.text, box = g.box, level = g.level,
-            w = size.x, y_top = size.y_top,
+            w = w, y_top = y_top,
         })
     end
 
@@ -175,8 +244,21 @@ function Overlay:paintTo(bb, x, y)
 
         -- Integers only. These end up as coordinates in the C blitter, and the
         -- centring above produces fractions.
-        RenderText:renderUtf8Text(bb, x + math.floor(text_x), y + math.floor(baseline),
-                                  face, item.text, true, false, Blitbuffer.COLOR_BLACK)
+        local shaped = self:shapeText(face, item.text)
+        if shaped then
+            local origin_x = x + math.floor(text_x)
+            local base_y = y + math.floor(baseline)
+            for _, gl in ipairs(shaped.glyphs) do
+                bb:colorblitFrom(gl.bb,
+                    origin_x + gl.x0 + gl.l,
+                    base_y - gl.t - gl.y_offset,
+                    0, 0, gl.bb:getWidth(), gl.bb:getHeight(),
+                    Blitbuffer.COLOR_BLACK)
+            end
+        else
+            RenderText:renderUtf8Text(bb, x + math.floor(text_x), y + math.floor(baseline),
+                                      face, item.text, true, false, Blitbuffer.COLOR_BLACK)
+        end
 
         -- Mark which word the gloss belongs to. A gloss is nearly always wider
         -- than its word and overhangs the neighbours on both sides, so without
