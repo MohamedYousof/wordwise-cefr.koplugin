@@ -1,4 +1,4 @@
-# Inline Hints (CEFR)
+# WordWise CEFR
 
 A fork of [omer-faruq's Inline Hints](https://github.com/omer-faruq/inlinehints.koplugin)
 -- the Kindle Word Wise style plugin for KOReader -- with these additions:
@@ -93,11 +93,11 @@ no longer share an id, so both can even be installed side by side).
 
 ## Using it
 
-**Tools → Inline Hints → Show hints while reading.** It is remembered per book,
+**Tools → WordWise CEFR → Show hints while reading.** It is remembered per book,
 and turning it on reloads the book once (it changes the line spacing to make
 room, which the engine has to re-render for).
 
-Under **Settings**:
+Under its **Settings**:
 
 - **Which words get a hint** — your own English level, A1 to C2 (see the fork
   section above). `abate` gets a hint at B1; `feature` never does.
