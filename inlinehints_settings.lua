@@ -20,6 +20,27 @@ LuaSettings only writes when told, so call flush() after changing anything.
 ]]
 
 local DataStorage = require("datastorage")
+local lfs = require("libs/libkoreader-lfs")
 local LuaSettings = require("luasettings")
 
-return LuaSettings:open(DataStorage:getSettingsDir() .. "/inlinehints.lua")
+-- One-time migration from the upstream-named settings file: this fork used to
+-- share "inlinehints.lua" with the original plugin, and anyone upgrading (or
+-- with both installed) would otherwise start from zero. The copy is verbatim
+-- -- a settings file is just a Lua table in, Lua table out.
+local settings_dir = DataStorage:getSettingsDir()
+local old_path = settings_dir .. "/inlinehints.lua"
+local new_path = settings_dir .. "/wordwise-cefr.lua"
+if not lfs.attributes(new_path) and lfs.attributes(old_path) then
+    local fin = io.open(old_path, "r")
+    if fin then
+        local contents = fin:read("*a")
+        fin:close()
+        local fout = io.open(new_path, "w")
+        if fout then
+            fout:write(contents)
+            fout:close()
+        end
+    end
+end
+
+return LuaSettings:open(new_path)

@@ -40,7 +40,7 @@ local PREPARE_DELAY_S = 2
 local PREPARE_WINDOW = 2
 
 local InlineHints = WidgetContainer:extend{
-    name = "inlinehints",
+    name = "wordwise-cefr",
     is_doc_only = true,
 }
 
@@ -55,7 +55,67 @@ function InlineHints:init()
     Engine.setPluginPath(self.path)
     Engine.setCefrLevel(Settings:readSetting("cefr"))
     Gloss.setMaxTerms(Settings:readSetting("max_terms"))
+    self:installBundledDicts()
     self.ui.menu:registerToMainMenu(self)
+end
+
+--[[--
+Copies the bundled fallback dictionaries into the reader's dict folder, once.
+
+The two StarDict packs built by tools/build_stardict.py ride along in the
+plugin folder so a fresh install works with no other setup. Only folders not
+already present are copied -- the reader's own dictionaries are never
+touched -- and a settings flag keeps it to a single run. First open moves
+about 10 MB, hence the flag; every later open costs one settings read.
+]]
+function InlineHints:installBundledDicts()
+    if Settings:readSetting("bundled_dicts_installed") then
+        return
+    end
+    local DataStorage = require("datastorage")
+    local lfs = require("libs/libkoreader-lfs")
+
+    local function copyTree(src, dest)
+        lfs.mkdir(dest)
+        for name in lfs.dir(src) do
+            if name:sub(1, 1) ~= "." then
+                local s, d = src .. "/" .. name, dest .. "/" .. name
+                if lfs.attributes(s, "mode") == "directory" then
+                    copyTree(s, d)
+                else
+                    local fin = io.open(s, "rb")
+                    if fin then
+                        local data = fin:read("*a")
+                        fin:close()
+                        local fout = io.open(d, "wb")
+                        if fout then
+                            fout:write(data)
+                            fout:close()
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    local src_root = self.path .. "/dictionaries"
+    if lfs.attributes(src_root, "mode") == "directory" then
+        local dest_root = DataStorage:getDataDir() .. "/data/dict"
+        if not lfs.attributes(dest_root, "mode") then
+            lfs.mkdir(dest_root) -- data/ itself exists in every KOReader install
+        end
+        for name in lfs.dir(src_root) do
+            local src = src_root .. "/" .. name
+            local dest = dest_root .. "/" .. name
+            if name:sub(1, 1) ~= "."
+                and lfs.attributes(src, "mode") == "directory"
+                and not lfs.attributes(dest, "mode") then
+                copyTree(src, dest)
+            end
+        end
+    end
+    Settings:saveSetting("bundled_dicts_installed", true)
+    Settings:flush()
 end
 
 --[[--
@@ -166,7 +226,10 @@ for any style change. The reload just took the overlay with it, because the
 setting didn't survive.
 ]]
 function InlineHints:onReadSettings(config)
-    self.overlay_enabled = config:isTrue("inlinehints_enabled")
+    -- The key was renamed with the plugin; read the old one so a book enabled
+    -- under the upstream name comes back enabled.
+    self.overlay_enabled = config:isTrue("wordwise_cefr_enabled")
+        or config:isTrue("inlinehints_enabled")
     -- Hooked whether or not hints are on: the hook checks overlay_enabled each
     -- time, and installing it later would miss the stylesheet ReaderTypeset has
     -- already applied by now.
@@ -177,7 +240,7 @@ function InlineHints:onReadSettings(config)
 end
 
 function InlineHints:onSaveSettings()
-    self.ui.doc_settings:saveSetting("inlinehints_enabled", self.overlay_enabled or nil)
+    self.ui.doc_settings:saveSetting("wordwise_cefr_enabled", self.overlay_enabled or nil)
 end
 
 function InlineHints:onCloseWidget()
@@ -192,7 +255,7 @@ function InlineHints:setOverlayEnabled(enabled)
     -- Persist before the reload below: reloadDocument saves settings, but the
     -- flag has to be in doc_settings for the reopened document to come back
     -- with the gap already applied.
-    self.ui.doc_settings:saveSetting("inlinehints_enabled", enabled or nil)
+    self.ui.doc_settings:saveSetting("wordwise_cefr_enabled", enabled or nil)
 
     -- Reload rather than just re-render. The line-height has changed either
     -- way, so crengine will re-render and reload on its own several seconds

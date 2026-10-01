@@ -66,20 +66,30 @@ Unlike the size, the font doesn't change the line spacing.
 
 ## Bundled fallback dictionaries
 
-Hints normally come from your own installed dictionaries. Two StarDict
-dictionaries built for this fork can be dropped into `koreader/data/dict/`
-when those aren't good enough — they then appear in the plugin's dictionary
-picker like any other:
+Two StarDict dictionaries ship **inside the plugin** (`dictionaries/`) and are
+copied into `koreader/data/dict/` automatically on first open — existing
+dictionaries are never touched, and it only happens once:
 
 - **English-Arabic (FreeDict)** — 86k pairs, from FreeDict's `eng-ara` 0.6.3
   (GPL). Short translations, not full definitions.
 - **English definitions (WordNet)** — 103k one-line senses, from the Open
   English WordNet 2025 release (CC BY 4.0), shortest definition per word.
 
-Rebuild them with `tools/build_stardict.py` (docstring has the usage). The
-build inputs are downloaded separately and never committed. wordwise.koplugin's
-bundled dictionary was considered and rejected: that repository has no license,
-so its data may not be redistributed.
+After that they appear in the plugin's dictionary picker like any other
+dictionary: tick the ones you want, put the ones you trust first. Rebuild
+them with `tools/build_stardict.py` (docstring has the usage); the build
+inputs are downloaded separately and never committed. wordwise.koplugin's
+bundled dictionary was considered and rejected: that repository has no
+license, so its data may not be redistributed.
+
+## Installing
+
+Copy this folder as `wordwise-cefr.koplugin` into KOReader's `plugins/`
+folder. Coming from the original Inline Hints? Your settings come along:
+the plugin migrates the old `inlinehints.lua` settings file on first run,
+and books enabled under the old name come back enabled. Removing the old
+plugin folder is recommended once you've switched (this fork and upstream
+no longer share an id, so both can even be installed side by side).
 
 ## Using it
 

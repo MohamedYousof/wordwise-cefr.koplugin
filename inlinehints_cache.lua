@@ -23,7 +23,7 @@ local logger = require("logger")
 local Cache = {}
 Cache.__index = Cache
 
-Cache.DB_PATH = DataStorage:getSettingsDir() .. "/inlinehints_cache.sqlite3"
+Cache.DB_PATH = DataStorage:getSettingsDir() .. "/wordwise-cefr_cache.sqlite3"
 
 -- Bump when the extraction rules change enough that stored glosses are wrong.
 -- 2: labels are now learned from each dictionary rather than taken from a

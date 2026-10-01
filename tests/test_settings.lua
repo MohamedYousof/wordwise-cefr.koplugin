@@ -46,7 +46,7 @@ end
 
 -- Per-book settings are a different thing and must stay in doc_settings: the
 -- enabled flag has to be readable before the document renders.
-check(read("main.lua"):find('doc_settings:saveSetting("inlinehints_enabled"', 1, true),
+check(read("main.lua"):find('doc_settings:saveSetting("wordwise_cefr_enabled"', 1, true),
       "the per-book enabled flag must live in doc_settings")
 
 print(fails == 0 and "settings rules verified" or (fails .. " FAILED"))
