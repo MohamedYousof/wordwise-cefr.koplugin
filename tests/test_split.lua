@@ -52,8 +52,9 @@ if not (ok and ok2) then print(fails .. " FAILED") os.exit(1) end
 -- Everything main.lua or diagnostics calls on the engine.
 for _, name in ipairs({
     "collectPageWords", "selectCandidates", "getDictLabels", "preparePage",
-    "resolveBoxes", "hasWordPack", "resetCensus", "setMinLevel",
-    "setPluginPath", "closeDatabases", "DEFAULT_MIN_LEVEL",
+    "resolveBoxes", "hasWordPack", "resetCensus", "setCefrLevel",
+    "shouldHint", "setPluginPath", "closeDatabases",
+    "DEFAULT_CEFR", "CEFR_RANK",
 }) do
     check(Engine[name] ~= nil, "engine exports " .. name)
 end

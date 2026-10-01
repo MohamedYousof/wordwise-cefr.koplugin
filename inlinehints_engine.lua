@@ -27,13 +27,34 @@ local Engine = {}
 -- Guards against a malformed DOM turning the walk below into an infinite loop.
 local MAX_WORDS = 3000
 
--- Gloss words at this rarity or above (1 = least rare, 5 = rarest). 3 leaves
--- "feature" and "murder" out and lets "abate" and "periodical" through.
-Engine.DEFAULT_MIN_LEVEL = 3
-local min_level = Engine.DEFAULT_MIN_LEVEL
+-- The reader picks their own English level on the CEFR scale (A1-C2). A word
+-- is glossed when its CEFR level is above that: a B1 reader is shown B2, C1
+-- and C2 words, and spared the A1-B1 words a learner at their level already
+-- knows. The pack stores real learner-vocabulary data (CEFR-J A1-B2, Octanove
+-- C1-C2), which is why this works better than a frequency guess.
+Engine.DEFAULT_CEFR = "B1"
+Engine.CEFR_RANK = { A1 = 1, A2 = 2, B1 = 3, B2 = 4, C1 = 5, C2 = 6 }
+local cefr_rank = Engine.CEFR_RANK[Engine.DEFAULT_CEFR]
 
-function Engine.setMinLevel(level)
-    min_level = level or Engine.DEFAULT_MIN_LEVEL
+function Engine.setCefrLevel(cefr)
+    cefr_rank = Engine.CEFR_RANK[cefr] or Engine.CEFR_RANK[Engine.DEFAULT_CEFR]
+end
+
+--[[--
+The whole "does this word get a hint" rule, in one pure function.
+
+lemma comes from the pack; a nil lemma means the word was dropped at build
+time -- too common, not English, or not vocabulary -- and never gets a hint.
+A word with a CEFR tag is glossed only when its level is above the reader's.
+A pack word with no tag sits outside every learner list A1-C2, so it is above
+the reader too, whatever their level; `level ~= nil` keeps out the handful of
+untagged words so common that glossing them would be noise.
+]]
+function Engine.shouldHint(lemma, level, cefr)
+    if not lemma then return false end
+    local rank = cefr and Engine.CEFR_RANK[cefr]
+    if rank then return rank > cefr_rank end
+    return level ~= nil
 end
 
 -- The engine splits "I'm" into "I" and "m", and ECDICT has an entry for "m",
@@ -337,15 +358,10 @@ function Engine.selectCandidates(doc, words, dropped_names)
         local w = words[i]
         local text = w.text:lower()
         if #text >= MIN_WORD_LEN and text:match("^%a+$") then
-            local keep, lemma, level
+            local keep, lemma, level, cefr
             if pack then
-                lemma, level = pack:lookup(text)
-                -- Not `(level or 0) >= min_level`: level 0 is a real rarity
-                -- band (the commonest words we'll ever hint), while a nil level
-                -- means the word is too common to hint at all, or is known only
-                -- to the CEFR profiles. Treating nil as 0 would hint "was" the
-                -- moment the reader asked for as many hints as possible.
-                keep = lemma and level ~= nil and level >= min_level
+                lemma, level, cefr = pack:lookup(text)
+                keep = Engine.shouldHint(lemma, level, cefr)
             else
                 lemma, keep = text, #text >= 7
             end

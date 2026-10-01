@@ -6,7 +6,7 @@ away without touching the reader's global configuration -- deleting this one
 file resets the plugin and nothing else.
 
 What lives here:
-  * min_level, max_terms, excluded_dicts -- what the reader chose.
+  * cefr, max_terms, excluded_dicts -- what the reader chose.
   * dict_labels -- what we learned about each dictionary's own formatting. Not a
     preference, but it belongs with them: it has to outlive the gloss cache
     (which is emptied whenever the dictionary set changes, while a dictionary's

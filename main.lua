@@ -45,7 +45,7 @@ function InlineHints:init()
     -- PluginLoader sets .path on the plugin module; the language pack sits
     -- next to this file, and submodules have no other way to find it.
     Engine.setPluginPath(self.path)
-    Engine.setMinLevel(Settings:readSetting("min_level"))
+    Engine.setCefrLevel(Settings:readSetting("cefr"))
     Gloss.setMaxTerms(Settings:readSetting("max_terms"))
     self.ui.menu:registerToMainMenu(self)
 end
@@ -367,33 +367,36 @@ InlineHints.onPosUpdate = InlineHints.onPageChanged
 InlineHints.onPageUpdate = InlineHints.onPageChanged
 
 --[[--
-Builds the "how many words" chooser.
+Builds the "my English level" chooser (CEFR A1-C2).
 
-Labelled by what the reader gets rather than by the number stored: "level 5"
-tells them nothing, "only the rarest words" tells them everything.
+The reader picks the level they actually have, and the engine glosses every
+word above it: pick B1 and the B2/C1/C2 words -- and anything no learner list
+has -- get explanations, while words a B1 reader already knows stay clean.
 ]]
-function InlineHints:genLevelMenu()
+function InlineHints:genCefrMenu()
+    local names = { "A1", "A2", "B1", "B2", "C1", "C2" }
     local labels = {
-        [5] = _("Only the rarest words"),
-        [4] = _("Rare words"),
-        [3] = _("Rare and uncommon words"),
-        [2] = _("Uncommon words too"),
-        [1] = _("Even fairly ordinary words"),
-        [0] = _("As many as possible"),
+        [1] = _("A1 — Beginner: hint most words"),
+        [2] = _("A2 — Elementary: everyday words and harder"),
+        [3] = _("B1 — Intermediate"),
+        [4] = _("B2 — Upper-intermediate"),
+        [5] = _("C1 — Advanced: only hard words"),
+        [6] = _("C2 — Proficient: only words no learner list has"),
     }
     local items = {}
-    for level = 5, 0, -1 do
+    for rank = 1, #names do
+        local name = names[rank]
         items[#items + 1] = {
-            text = labels[level],
+            text = labels[rank],
             radio = true,
             checked_func = function()
-                return (Settings:readSetting("min_level")
-                        or Engine.DEFAULT_MIN_LEVEL) == level
+                return (Settings:readSetting("cefr")
+                        or Engine.DEFAULT_CEFR) == name
             end,
             callback = function()
-                Settings:saveSetting("min_level", level)
+                Settings:saveSetting("cefr", name)
                 Settings:flush()
-                Engine.setMinLevel(level)
+                Engine.setCefrLevel(name)
                 self:invalidateGlosses()
             end,
         }
@@ -534,7 +537,7 @@ function InlineHints:addToMainMenu(menu_items)
                 sub_item_table = {
                     {
                         text = _("Which words get a hint"),
-                        sub_item_table_func = function() return self:genLevelMenu() end,
+                        sub_item_table_func = function() return self:genCefrMenu() end,
                     },
                     {
                         text = _("How long a hint may be"),

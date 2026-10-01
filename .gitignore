@@ -9,3 +9,8 @@ octanove.csv
 # SQLite sidecars, if the language pack is ever opened here for a look.
 *.sqlite3-wal
 *.sqlite3-shm
+
+# Desktop test deps, downloaded on demand (see tests/run_tests.lua), never
+# committed -- KOReader ships both, tests just need them off-device.
+lua-ljsqlite3/
+xsys/

@@ -17,7 +17,7 @@ local windows = package.config:sub(1, 1) == "\\"
 local devnull = windows and "NUL" or "/dev/null"
 local interpreter = arg[-1] or "luajit"
 
-local tests = { "test_gloss", "test_learn", "test_layout", "test_census", "test_settings", "test_split" }
+local tests = { "test_gloss", "test_learn", "test_layout", "test_census", "test_settings", "test_split", "test_cefr" }
 local failed = 0
 
 for _, name in ipairs(tests) do

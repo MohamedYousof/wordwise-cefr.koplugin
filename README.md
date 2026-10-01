@@ -13,6 +13,24 @@ The meanings come from StarDict dictionaries you already have installed, so the
 hints are in your language without anything to download. Nothing is bundled but
 the data needed to decide *which* words are worth explaining.
 
+## This fork: pick your CEFR level (A1–C2)
+
+Upstream picks hints by word *rarity* — six frequency steps. This fork picks
+them by *learner level*: you state your own English level (A1–C2), and a word
+gets a hint when its CEFR level is above yours. Pick **B1** and the B2/C1/C2
+words — plus anything no learner list knows — get explanations, while the words
+a B1 reader already knows stay clean.
+
+The CEFR tags are real learner-vocabulary data (CEFR-J A1–B2, Octanove C1–C2),
+already stored in the language pack; upstream shipped them but only used them
+to keep words in the pack. Words with no CEFR tag are hinted at any level,
+which is the honest answer: if no learner list A1–C2 has a word, no reader at
+those levels can be assumed to know it.
+
+**Settings → Which words get a hint** is now the level picker, defaulting to
+B1. Rarity is still used as the fallback for untagged words and for the
+collision rule (the rarer word keeps its hint when two can't both be drawn).
+
 ## Using it
 
 **Tools → Inline Hints → Show hints while reading.** It is remembered per book,
@@ -21,8 +39,8 @@ room, which the engine has to re-render for).
 
 Under **Settings**:
 
-- **Which words get a hint** — six steps, from *only the rarest words* to *as
-  many as possible*. Rarity, not length: `abate` gets a hint, `feature` doesn't.
+- **Which words get a hint** — your own English level, A1 to C2 (see the fork
+  section above). `abate` gets a hint at B1; `feature` never does.
 - **How long a hint may be** — one to three meanings.
 - **Dictionaries to take meanings from** — tried in the order KOReader lists
   them, and the first one with something short enough to fit wins. Turn off the

@@ -78,7 +78,9 @@ end
 Resolves a word to its base form and rarity.
 
 Returns lemma, level, cefr, tags. level is 1 (least rare) to 5, and may be nil
-for a word the CEFR profiles know but no corpus ranked. Returns nil when the
+for a word the CEFR profiles know but no corpus ranked. cefr is the learner
+level A1-C2 the profiles assign, or nil -- the engine picks hints by it first,
+falling back to rarity only for words no profile knows. Returns nil when the
 word isn't worth glossing at all: too common, not English, or absent from the
 pack -- which is the answer for the great majority of words on a page.
 ]]
