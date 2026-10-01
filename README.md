@@ -8,27 +8,21 @@ A fork of [omer-faruq's Inline Hints](https://github.com/omer-faruq/inlinehints.
   Octanove (C1–C2) data, which the pack already carried.
 - **Hint font and size settings** (10–18), with the line gap scaling to the
   size instead of a fixed doubled line height.
-- **Two bundled fallback dictionaries** you can drop into `koreader/data/dict/`:
-  English–Arabic (FreeDict, GPL) and short English definitions (Open English
-  WordNet, CC BY 4.0).
+- **Two fallback dictionaries bundled and installed for you**: English–Arabic
+  (FreeDict, GPL) and short English definitions (Open English WordNet,
+  CC BY 4.0) — copied into `koreader/data/dict/` on first open.
 - **Proper Arabic (RTL) hints** — glosses are shaped with the reader's own
   HarfBuzz/FriBidi engine instead of painted as isolated letters.
 
-The plugin id and settings file stay `inlinehints`, so it installs and
-upgrades over upstream's folder without losing your choices.
+Coming from the original Inline Hints? Your settings migrate on first run, and
+books you enabled there come back enabled (see Installing).
 
-Shows a short meaning above difficult English words as you read, in whatever
-language your dictionaries are in.
+![Hints above English and Arabic words: "engaged in war" over *militant*, and the Arabic الخطف over *kidnapped*](screenshot.png)
 
-```
-                        yaslanmak, arkaya yatmak
-With its high, spine-soothing back and reclining feature, it's meditation-ready.
-                                    ──────────
-```
-
-The meanings come from StarDict dictionaries you already have installed, so the
-hints are in your language without anything to download. Nothing is bundled but
-the data needed to decide *which* words are worth explaining.
+Hints are in whatever language your dictionaries are in — the two bundled
+fallbacks speak Arabic and English, and the meanings come from StarDict
+dictionaries, so nothing is fetched while you read. The bundled data only
+decides *which* words are worth explaining.
 
 ## This fork: pick your CEFR level (A1–C2)
 
