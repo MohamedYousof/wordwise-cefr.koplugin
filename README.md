@@ -1,7 +1,24 @@
-# Inline Hints
+# Inline Hints (CEFR)
+
+A fork of [omer-faruq's Inline Hints](https://github.com/omer-faruq/inlinehints.koplugin)
+-- the Kindle Word Wise style plugin for KOReader -- with these additions:
+
+- **Pick your English level (CEFR A1–C2)** instead of rarity steps: a word gets
+  a hint when its learner level is above yours. Real CEFR-J (A1–B2) and
+  Octanove (C1–C2) data, which the pack already carried.
+- **Hint font and size settings** (10–18), with the line gap scaling to the
+  size instead of a fixed doubled line height.
+- **Two bundled fallback dictionaries** you can drop into `koreader/data/dict/`:
+  English–Arabic (FreeDict, GPL) and short English definitions (Open English
+  WordNet, CC BY 4.0).
+- **Proper Arabic (RTL) hints** — glosses are shaped with the reader's own
+  HarfBuzz/FriBidi engine instead of painted as isolated letters.
+
+The plugin id and settings file stay `inlinehints`, so it installs and
+upgrades over upstream's folder without losing your choices.
 
 Shows a short meaning above difficult English words as you read, in whatever
-language your dictionaries are in. Similar to Kindle's Word Wise.
+language your dictionaries are in.
 
 ```
                         yaslanmak, arkaya yatmak
@@ -38,6 +55,14 @@ leading above its word; this setting makes it bigger or smaller (10–18,
 default 12). The line spacing scales with it: the room a hint needs is the
 room the line gives it, so bigger hints open more leading. Changing it
 re-renders the book, the same as turning hints on does.
+
+## Hint font
+
+**Settings → Hint font** — every font KOReader can see (bundled ones plus
+anything in your fonts folder), defaulting to the reader's UI font. If the
+chosen face has no glyphs for a hint's language, the reader's fallback fonts
+cover the missing script, so an Arabic hint stays readable with any pick.
+Unlike the size, the font doesn't change the line spacing.
 
 ## Bundled fallback dictionaries
 

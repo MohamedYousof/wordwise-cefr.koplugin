@@ -287,6 +287,7 @@ function InlineHints:drawPrepared(prepared)
     -- open, and it decides where inside its line box a word's letters sit.
     self.overlay.text_height = self.ui.document:getFontSize()
     self.overlay.font_size = self:getHintFontSize()
+    self.overlay.hint_font = self:getHintFont()
 
     local glosses = Engine.resolveBoxes(self.ui.document, prepared)
     logger.dbg("InlineHints: drawing", #glosses, "hints on page", prepared and prepared.page)
@@ -380,6 +381,10 @@ function InlineHints:getHintFontSize()
     return Settings:readSetting("hint_font_size") or DEFAULT_HINT_FONT_SIZE
 end
 
+function InlineHints:getHintFont()
+    return Settings:readSetting("hint_font") -- nil = KOReader's UI font
+end
+
 --[[--
 Builds the hint text size chooser.
 
@@ -414,6 +419,57 @@ function InlineHints:genFontSizeMenu()
                     -- predictably rather than on crengine's idle timer.
                     self:setOverlayEnabled(true)
                 end
+            end,
+        }
+    end
+    return items
+end
+
+--[[--
+Builds the hint font chooser.
+
+Lists every font KOReader can see (its own bundled ones plus anything dropped
+into the fonts folder), with the reader's UI font as the default. Hints are
+drawn by us, not the book, so the choice costs nothing but this list; if the
+picked font has no glyphs for a hint's language (Arabic, say), the shaping
+engine falls back to KOReader's bundled fallback fonts for the missing
+script, same as everywhere else in the reader.
+]]
+function InlineHints:genHintFontMenu()
+    local FontList = require("fontlist")
+    local items = {
+        {
+            text = _("Default (KOReader font)"),
+            radio = true,
+            checked_func = function()
+                return self:getHintFont() == nil
+            end,
+            callback = function()
+                if self:getHintFont() == nil then return end
+                Settings:saveSetting("hint_font", nil)
+                Settings:flush()
+                self:invalidateGlosses()
+            end,
+            separator = true,
+        },
+    }
+    local fonts = FontList:getFontList()
+    table.sort(fonts, function(a, b) return a:lower() < b:lower() end)
+    for _, path in ipairs(fonts) do
+        local label = path:match("([^/]+)$") or path
+        items[#items + 1] = {
+            text = label,
+            radio = true,
+            checked_func = function()
+                return self:getHintFont() == path
+            end,
+            callback = function()
+                if self:getHintFont() == path then return end
+                Settings:saveSetting("hint_font", path)
+                Settings:flush()
+                -- The gloss width changes with the face, so the page's layout
+                -- is stale; recomputing glosses redraws them.
+                self:invalidateGlosses()
             end,
         }
     end
@@ -600,6 +656,10 @@ function InlineHints:addToMainMenu(menu_items)
                     {
                         text = _("Hint text size"),
                         sub_item_table_func = function() return self:genFontSizeMenu() end,
+                    },
+                    {
+                        text = _("Hint font"),
+                        sub_item_table_func = function() return self:genHintFontMenu() end,
                     },
                     {
                         text = _("Dictionaries to take meanings from"),

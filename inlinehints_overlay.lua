@@ -39,6 +39,9 @@ local Overlay = Widget:extend{
     -- Array of { text = <gloss>, box = <Geom, screen coords> }.
     glosses = nil,
     font_size = 12,
+    -- Font path the reader picked, or nil for KOReader's UI font. Same deal
+    -- as font_size: set by main.lua on every draw, never touched here.
+    hint_font = nil,
     underline = true,
     -- Height of the document's own text, in pixels. Needed because the engine's
     -- word boxes are LINE boxes: they span the full line-height, and the glyphs
@@ -237,7 +240,7 @@ function Overlay:paintTo(bb, x, y)
     if #self.glosses == 0 then
         return
     end
-    local face = Font:getFace("cfont", self.font_size)
+    local face = Font:getFace(self.hint_font or "cfont", self.font_size)
     local max_x = bb:getWidth()
     if not self.placed then
         self.placed = self:layout(face, max_x)
