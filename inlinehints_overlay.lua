@@ -19,6 +19,7 @@ presented), but the presentation would have to change.
 
 local Blitbuffer = require("ffi/blitbuffer")
 local Font = require("ui/font")
+local logger = require("logger")
 local RenderText = require("ui/rendertext")
 local Size = require("ui/size")
 local Widget = require("ui/widget/widget")
@@ -69,11 +70,18 @@ end
 Shapes one gloss into positioned glyphs, ready to blit.
 
 Returns { width, y_top, glyphs = {bb, l, t, x0, y_offset} } or nil when there
-is no shaping engine. x0 is the glyph's own advance position along the line
-(FriBidi has already put right-to-left runs in visual order, so drawing left
-to right over x0 is correct), y_top the tallest ascent -- the same figure
-sizeUtf8Text reports as y_top for the plain path. Cached: the same short
-gloss recurs on every page turn, and shaping costs a HarfBuzz run each time.
+is no shaping engine. x0 is the glyph's own advance position along the line:
+shapeLine returns glyphs in visual order but without positions, so the pen is
+accumulated over the advances exactly like textboxwidget does. FriBidi has
+already put right-to-left runs into visual order, so drawing left to right
+over x0 is correct for Arabic too. y_top is the tallest ascent -- the same
+figure sizeUtf8Text reports as y_top for the plain path. Cached: the same
+short gloss recurs on every page turn, and shaping costs a HarfBuzz run
+each time.
+
+Offsets are in codepoints: the xtext userdata's # counts characters, not
+bytes -- shapeLine(1, #text + 1) overruns and errors on every non-ASCII
+gloss, which is exactly what the first attempt got wrong.
 ]]
 function Overlay:shapeText(face, text)
     if not xtext_ok then
@@ -87,23 +95,25 @@ function Overlay:shapeText(face, text)
     local ok, shaped = pcall(function()
         local X = xtext.new(text, face, true) -- auto paragraph direction
         X:measure()
-        local line = X:shapeLine(1, #text + 1)
+        local line = X:shapeLine(1, #X)
+        local pen = 0
         local out = { width = tonumber(line.width) or 0, y_top = 0, glyphs = {} }
         for _, xg in ipairs(line.xglyphs or line) do
             if not xg.no_drawing then
                 local gface = face.getFallbackFont(xg.font_num)
                 local glyph = gface and RenderText:getGlyphByIndex(gface, xg.glyph, false)
+                local x0 = pen
+                pen = pen + (xg.x_advance or 0)
                 if glyph and glyph.bb then
-                    local x_end = (xg.x0 or 0) + (xg.x_advance or 0)
-                    if x_end > out.width then
-                        out.width = x_end
+                    if pen > out.width then
+                        out.width = pen
                     end
                     if glyph.t > out.y_top then
                         out.y_top = glyph.t
                     end
                     out.glyphs[#out.glyphs + 1] = {
                         bb = glyph.bb, l = glyph.l, t = glyph.t,
-                        x0 = (xg.x0 or 0) + (xg.x_offset or 0),
+                        x0 = x0 + (xg.x_offset or 0),
                         y_offset = xg.y_offset or 0,
                     }
                 end
@@ -111,7 +121,10 @@ function Overlay:shapeText(face, text)
         end
         return out
     end)
-    shaped = ok and shaped or nil
+    if not ok then
+        logger.warn("InlineHints: shaping gloss failed, drawing it raw:", tostring(shaped))
+        shaped = nil
+    end
     shaped_cache[key] = shaped or false -- also cache failures: don't re-crash
     return shaped
 end

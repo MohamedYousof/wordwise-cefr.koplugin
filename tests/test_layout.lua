@@ -9,7 +9,8 @@ package.loaded["ui/rendertext"] = {
     sizeUtf8Text = function(_, _, _, _, text) return { x = #text * 6, y_top = 9 } end,
 }
 package.loaded["ui/size"] = { span = { horizontal_small = 5 }, line = { thin = 1 } }
-package.loaded["ui/widget/widget"] = { extend = function(_, t) 
+package.loaded["logger"] = { warn = function() end, dbg = function() end, info = function() end }
+package.loaded["ui/widget/widget"] = { extend = function(_, t)
     t.new = function(cls, o) o = o or {}; setmetatable(o, {__index = cls}); if o.init then o:init() end; return o end
     return t
 end }
