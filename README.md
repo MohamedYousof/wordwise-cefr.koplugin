@@ -31,6 +31,31 @@ those levels can be assumed to know it.
 B1. Rarity is still used as the fallback for untagged words and for the
 collision rule (the rarer word keeps its hint when two can't both be drawn).
 
+## Hint text size
+
+**Settings → Hint text size** — the gloss is drawn small so it fits in the
+leading above its word; this setting makes it bigger or smaller (10–18,
+default 12). The line spacing scales with it: the room a hint needs is the
+room the line gives it, so bigger hints open more leading. Changing it
+re-renders the book, the same as turning hints on does.
+
+## Bundled fallback dictionaries
+
+Hints normally come from your own installed dictionaries. Two StarDict
+dictionaries built for this fork can be dropped into `koreader/data/dict/`
+when those aren't good enough — they then appear in the plugin's dictionary
+picker like any other:
+
+- **English-Arabic (FreeDict)** — 86k pairs, from FreeDict's `eng-ara` 0.6.3
+  (GPL). Short translations, not full definitions.
+- **English definitions (WordNet)** — 103k one-line senses, from the Open
+  English WordNet 2025 release (CC BY 4.0), shortest definition per word.
+
+Rebuild them with `tools/build_stardict.py` (docstring has the usage). The
+build inputs are downloaded separately and never committed. wordwise.koplugin's
+bundled dictionary was considered and rejected: that repository has no license,
+so its data may not be redistributed.
+
 ## Using it
 
 **Tools → Inline Hints → Show hints while reading.** It is remembered per book,

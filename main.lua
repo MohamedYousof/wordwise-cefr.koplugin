@@ -16,9 +16,17 @@ local T = require("ffi/util").template
 -- text above. Opening the leading is the only way to make room, and a plugin
 -- can do it without touching the core: ReaderTypeset hands the document a
 -- stylesheet plus the style tweaks, and we append to that.
-local GAP_CSS = [[
-p, li, dd, dt, blockquote { line-height: 2 !important; }
-]]
+--
+-- The room scales with the gloss size, not the text size: a 12pt gloss needs
+-- the line-height 2.0 upstream shipped (measured on a real page), and every
+-- step above or below that asks for proportionally more or less leading.
+local DEFAULT_HINT_FONT_SIZE = 12
+
+local function gapCss(font_size)
+    local line_height = 1 + font_size / DEFAULT_HINT_FONT_SIZE
+    return ("p, li, dd, dt, blockquote { line-height: %.2f !important; }")
+        :format(line_height)
+end
 
 -- How long to wait after a page settles before working out the next one. Long
 -- enough that a reader flipping through pages never triggers it, short enough
@@ -115,7 +123,8 @@ function InlineHints:hookStyleSheet()
     local setStyleSheet = doc.setStyleSheet
     doc.setStyleSheet = function(document, css, tweaks_css)
         if self.overlay_enabled then
-            tweaks_css = (tweaks_css or "") .. "\n" .. GAP_CSS
+            tweaks_css = (tweaks_css or "") .. "\n"
+                .. gapCss(self:getHintFontSize())
         end
         return setStyleSheet(document, css, tweaks_css)
     end
@@ -277,6 +286,7 @@ function InlineHints:drawPrepared(prepared)
     -- Re-read each time: the reader can change the font size while the book is
     -- open, and it decides where inside its line box a word's letters sit.
     self.overlay.text_height = self.ui.document:getFontSize()
+    self.overlay.font_size = self:getHintFontSize()
 
     local glosses = Engine.resolveBoxes(self.ui.document, prepared)
     logger.dbg("InlineHints: drawing", #glosses, "hints on page", prepared and prepared.page)
@@ -365,6 +375,50 @@ end
 
 InlineHints.onPosUpdate = InlineHints.onPageChanged
 InlineHints.onPageUpdate = InlineHints.onPageChanged
+
+function InlineHints:getHintFontSize()
+    return Settings:readSetting("hint_font_size") or DEFAULT_HINT_FONT_SIZE
+end
+
+--[[--
+Builds the hint text size chooser.
+
+The gloss is drawn small on purpose -- it has to fit in the leading above its
+word -- but on a big e-ink screen or tired eyes, small is a choice, not a law.
+Changing it changes the line-height with it (see gapCss), so the book reloads
+the same way it does when hints are turned on.
+]]
+function InlineHints:genFontSizeMenu()
+    local sizes = { 10, 12, 14, 16, 18 }
+    local labels = {
+        [10] = _("Small (10)"),
+        [12] = _("Normal (12)"),
+        [14] = _("Large (14)"),
+        [16] = _("Extra large (16)"),
+        [18] = _("Huge (18)"),
+    }
+    local items = {}
+    for _, size in ipairs(sizes) do
+        items[#items + 1] = {
+            text = labels[size],
+            radio = true,
+            checked_func = function()
+                return self:getHintFontSize() == size
+            end,
+            callback = function()
+                if self:getHintFontSize() == size then return end
+                Settings:saveSetting("hint_font_size", size)
+                Settings:flush()
+                if self.overlay_enabled then
+                    -- The gap changes with the size, so re-render now and
+                    -- predictably rather than on crengine's idle timer.
+                    self:setOverlayEnabled(true)
+                end
+            end,
+        }
+    end
+    return items
+end
 
 --[[--
 Builds the "my English level" chooser (CEFR A1-C2).
@@ -542,6 +596,10 @@ function InlineHints:addToMainMenu(menu_items)
                     {
                         text = _("How long a hint may be"),
                         sub_item_table_func = function() return self:genLengthMenu() end,
+                    },
+                    {
+                        text = _("Hint text size"),
+                        sub_item_table_func = function() return self:genFontSizeMenu() end,
                     },
                     {
                         text = _("Dictionaries to take meanings from"),
