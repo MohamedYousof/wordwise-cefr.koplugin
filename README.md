@@ -85,6 +85,11 @@ and books enabled under the old name come back enabled. Removing the old
 plugin folder is recommended once you've switched (this fork and upstream
 no longer share an id, so both can even be installed side by side).
 
+Updating from 1.2.0? Delete `data/dict/FreeDict-English-Arabic` and
+`data/dict/WordNet-English` once: those very first copies predate the
+upgrade marker, and the plugin only replaces dictionaries it installed
+itself.
+
 ## Using it
 
 **Tools → WordWise CEFR → Show hints while reading.** It is remembered per book,
