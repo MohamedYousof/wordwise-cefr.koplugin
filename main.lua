@@ -372,7 +372,11 @@ function InlineHints:prepareNextPage()
     if not self.overlay_enabled then
         return
     end
-    local next_page = self.ui.document:getCurrentPage() + 1
+    local doc = self.ui.document
+    if not doc then
+        return
+    end
+    local next_page = doc:getCurrentPage() + 1
     if self.prepared[next_page] then
         return
     end
@@ -381,7 +385,14 @@ function InlineHints:prepareNextPage()
         if not self.overlay_enabled or self.refreshing then
             return
         end
-        if self.ui.document:getCurrentPage() + 1 ~= next_page then
+        -- Two seconds later the book may be closed already: this task then
+        -- outlives its document and must not touch it (that race is what the
+        -- crash log caught on 10/03 -- "attempt to index field 'document'").
+        doc = self.ui.document
+        if not doc then
+            return
+        end
+        if doc:getCurrentPage() + 1 ~= next_page then
             return -- reader moved; whatever we'd prepare is for the wrong page
         end
         self.refreshing = true
