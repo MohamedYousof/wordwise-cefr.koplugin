@@ -53,33 +53,49 @@ def cmd_freedict(args):
     b64i = lambda b: int.from_bytes(base64.b64decode(b + b"=" * (-len(b) % 4)), "big")
     buf = gzip.open(args.dict_dz, "rb").read()
 
-    # dictd groups alphabetically adjacent headwords into one shared article:
-    # alternating lines of English headword and Arabic translation. The index
-    # tells us where each article starts; the article ends where the next one
-    # does, so sizes come from the gaps between unique offsets.
-    offsets = {}
+    # dictd groups alphabetically adjacent headwords into one shared article,
+    # each line a headword with its translation on the next line. The index
+    # points every headword at its article; pairing by position instead of by
+    # name misaligned whenever an article carried an extra line, and the
+    # mispairs were real ("commiserate" -> Arabic for "inheritance"). So look
+    # each headword up as a line and take its own next line, or skip it.
+    words_by_offset = {}
     for line in open(args.index, "rb"):
         parts = line.rstrip(b"\n").split(b"\t")
         if len(parts) != 3 or parts[0].startswith(b"00database"):
             continue  # dictd's own metadata articles
-        offsets[b64i(parts[1])] = None
-    stops = sorted(offsets) + [len(buf)]
+        words_by_offset.setdefault(b64i(parts[1]), []).append(
+            parts[0].decode("utf-8", "replace"))
+    stops = sorted(words_by_offset) + [len(buf)]
 
-    entries = []
-    for i, start in enumerate(sorted(offsets)):
-        article = buf[start:stops[i + 1]].decode("utf-8", "replace").split("\n")
-        article = [ln.strip() for ln in article if ln.strip()]
-        if len(article) % 2:
-            article = article[:-1]  # a trailing stray line: drop, don't misalign
-        for head, trans in zip(article[0::2], article[1::2]):
-            # Keep it a usable hint: skip English-looking or giant lines.
-            if not head or not trans or len(trans) > 120:
-                continue
-            if head[0].isupper() and not head.isupper() and head.lower() == head:
-                continue
-            entries.append((head.lower(), trans))
+    def is_arabic(text):
+        return any("\u0600" <= ch <= "\u06ff" for ch in text)
 
-    entries = {w: t for w, t in entries}  # last translation wins on duplicates
+    def clean_translation(text):
+        # FreeDict loves the definite article; a hint wants the bare word.
+        # Keep at least three characters after the strip ("ال" alone is not
+        # a translation of anything).
+        if text.startswith("ال") and len(text) >= 5:
+            text = text[2:]
+        return text.strip()
+
+    entries = {}
+    for start in sorted(words_by_offset):
+        lines = [ln.strip() for ln in
+                 buf[start:stops[stops.index(start) + 1]]
+                 .decode("utf-8", "replace").split("\n") if ln.strip()]
+        at_line = {}
+        for pos, ln in enumerate(lines):
+            at_line.setdefault(ln.lower(), pos)
+        for word in words_by_offset[start]:
+            pos = at_line.get(word.lower())
+            if pos is None or pos + 1 >= len(lines):
+                continue  # headword not found as its own line: don't guess
+            trans = clean_translation(lines[pos + 1])
+            if not is_arabic(trans) or not 2 <= len(trans) <= 60:
+                continue
+            entries.setdefault(word.lower(), trans)  # first translation wins
+
     write_stardict(args.out, "eng-ara", "English-Arabic (FreeDict)",
                    "FreeDict eng-ara 0.6.3, GPL; freedict.org", sorted(entries.items()))
 
@@ -103,17 +119,20 @@ def cmd_wordnet(args):
         for lemma, poses in json.load(path.open(encoding="utf-8")).items():
             if not lemma or not lemma[0].islower() or len(lemma) < 2:
                 continue  # proper nouns and single letters never make a hint
-            candidates = [defs[s["synset"]]
-                          for pos in poses.values()
-                          for s in pos.get("sense", [])
-                          if s.get("synset") in defs]
-            if not candidates:
-                continue
-            # The hint line is one meaning, short by design: take the shortest
-            # definition, and don't take anything longer than a hint can hold.
-            best = min(candidates, key=len)
-            if len(best) <= 120:
-                entries[lemma] = best
+            # The first sense WordNet lists is its most common one. Picking
+            # the shortest definition instead grabbed the rarest sense for
+            # polysemous words ("run" -> the baseball sense).
+            definition = None
+            for pos in poses.values():
+                for sense in pos.get("sense", []):
+                    d = defs.get(sense.get("synset"))
+                    if d:
+                        definition = d
+                        break
+                if definition:
+                    break
+            if definition and len(definition) <= 120:
+                entries[lemma] = definition
 
     write_stardict(args.out, "wordnet-en", "English definitions (WordNet)",
                    "Open English WordNet 2025, CC BY 4.0; globalwordnet.github.io",

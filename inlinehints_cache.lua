@@ -32,7 +32,10 @@ Cache.DB_PATH = DataStorage:getSettingsDir() .. "/wordwise-cefr_cache.sqlite3"
 -- 3: rarity comes from wordfreq rather than ECDICT's own ranks, so words the
 --    old data had us hinting (alabama, amazon, android) are no longer hinted
 --    at all -- their cached meanings would otherwise linger.
-local SCHEMA_VERSION = 3
+-- 4: the bundled dictionaries were rebuilt (FreeDict re-paired and cleaned,
+--    WordNet first sense instead of shortest), so stored meanings would be
+--    the old answers.
+local SCHEMA_VERSION = 4
 
 local SCHEMA = [[
     CREATE TABLE IF NOT EXISTS profile (

@@ -46,15 +46,20 @@ The whole "does this word get a hint" rule, in one pure function.
 lemma comes from the pack; a nil lemma means the word was dropped at build
 time -- too common, not English, or not vocabulary -- and never gets a hint.
 A word with a CEFR tag is glossed only when its level is above the reader's.
-A pack word with no tag sits outside every learner list A1-C2, so it is above
-the reader too, whatever their level; `level ~= nil` keeps out the handful of
-untagged words so common that glossing them would be noise.
+
+A pack word with no tag has no learner evidence either way, so it rides on
+rarity -- but with a floor that moves with the reader. Half the pack is
+untagged, and "no tag = always hinted" sent a B2 reader hints for his
+mid-frequency vocabulary (measured on his own cache: 55% of untagged hints
+sat in the two commonest rarity bands). The assumption: an untagged word this
+common is known at any level; only one rarer than two bands below the reader
+is worth explaining.
 ]]
 function Engine.shouldHint(lemma, level, cefr)
     if not lemma then return false end
     local rank = cefr and Engine.CEFR_RANK[cefr]
     if rank then return rank > cefr_rank end
-    return level ~= nil
+    return level ~= nil and level >= cefr_rank - 2
 end
 
 -- The engine splits "I'm" into "I" and "m", and ECDICT has an entry for "m",

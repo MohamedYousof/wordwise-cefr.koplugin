@@ -64,9 +64,9 @@ Two StarDict dictionaries ship **inside the plugin** (`dictionaries/`) and are
 copied into `koreader/data/dict/` automatically on first open — existing
 dictionaries are never touched, and it only happens once:
 
-- **English-Arabic (FreeDict)** — 86k pairs, from FreeDict's `eng-ara` 0.6.3
+- **English-Arabic (FreeDict)** — 77k pairs, from FreeDict's `eng-ara` 0.6.3
   (GPL). Short translations, not full definitions.
-- **English definitions (WordNet)** — 103k one-line senses, from the Open
+- **English definitions (WordNet)** — 102k one-line senses, from the Open
   English WordNet 2025 release (CC BY 4.0), shortest definition per word.
 
 After that they appear in the plugin's dictionary picker like any other

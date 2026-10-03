@@ -71,17 +71,25 @@ check(not hinted("crepuscular", nil, "C2"), "C2 word hidden from C2 reader too")
 Engine.setCefrLevel("B1")
 check(Engine.CEFR_RANK["B1"] == 3, "back to B1: rank 3")
 
--- Untagged pack words sit above every learner list: always hinted, at any
--- level. The rarity check only keeps out words the pack kept but ranked
--- nothing -- so common that glossing them would be noise.
+-- Untagged pack words ride on rarity, with a floor two bands under the
+-- reader: common untagged words are assumed known, rarer ones explained.
+-- (floor = CEFR rank - 2: B1 -> 1, B2 -> 2, C1 -> 3, C2 -> 4)
+Engine.setCefrLevel("B1")
 check(hinted("abate", 4, nil), "untagged rare word shown to B1 reader")
+check(hinted("decoy", 1, nil), "untagged band-1 word shown to B1 reader")
+check(not hinted("dwindle", 0, nil), "untagged commonest band hidden from B1 reader")
+Engine.setCefrLevel("B2")
+check(hinted("decoy", 2, nil), "untagged band-2 word shown to B2 reader")
+check(not hinted("dwindle", 1, nil), "untagged band-1 word hidden from B2 reader")
 Engine.setCefrLevel("C2")
 check(hinted("abate", 4, nil), "untagged rare word shown to C2 reader")
+check(not hinted("decoy", 2, nil), "untagged band-2 word hidden from C2 reader")
 Engine.setCefrLevel("B1")
 check(not hinted("was", nil, nil), "untagged unranked word hidden")
 -- An unknown tag can never crash the comparison; the word is then treated as
--- untagged pack vocabulary, which the rarity data still vouches for.
-check(hinted("house", 0, "zz"), "unknown cefr tag falls back to rarity rule")
+-- untagged pack vocabulary, under the same rarity floor as any untagged word.
+check(not hinted("house", 0, "zz"), "unknown tag: band-0 word under B1 floor")
+check(hinted("abate", 1, "zz"), "unknown tag: band-1 word passes the B1 floor")
 check(not hinted("house", nil, "zz"), "unknown tag and no rarity: no hint")
 
 print(fails == 0 and "cefr selection verified" or (fails .. " FAILED"))
