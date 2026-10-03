@@ -742,7 +742,7 @@ end
 
 function InlineHints:addToMainMenu(menu_items)
     menu_items.inlinehints = {
-        text = _("Inline Hints"),
+        text = _("WordWise CEFR"),
         sorting_hint = "tools",
         sub_item_table = {
             {
@@ -865,7 +865,7 @@ function InlineHints:runBenchmark()
 
     logger.info("InlineHints probe:", report)
 
-    local text = T(_([[Inline Hints page benchmark
+    local text = T(_([[WordWise CEFR page benchmark
 
 Words on page: %1
 Difficult candidates: %2 (boxes: %3)%4
