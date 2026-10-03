@@ -359,10 +359,18 @@ for any style change. The reload just took the overlay with it, because the
 setting didn't survive.
 ]]
 function InlineHints:onReadSettings(config)
-    -- The key was renamed with the plugin; read the old one so a book enabled
-    -- under the upstream name comes back enabled.
-    self.overlay_enabled = config:isTrue("wordwise_cefr_enabled")
-        or config:isTrue("inlinehints_enabled")
+    -- The key was renamed with the plugin. A book enabled under the old name
+    -- migrates once: the old flag is copied to the new key and cleared, so it
+    -- can never resurrect hints after the reader toggles them off.
+    if config:isTrue("wordwise_cefr_enabled") then
+        self.overlay_enabled = true
+    else
+        self.overlay_enabled = config:isTrue("inlinehints_enabled")
+        if self.overlay_enabled then
+            config:saveSetting("wordwise_cefr_enabled", true)
+            config:saveSetting("inlinehints_enabled", nil)
+        end
+    end
     -- Hooked whether or not hints are on: the hook checks overlay_enabled each
     -- time, and installing it later would miss the stylesheet ReaderTypeset has
     -- already applied by now.
@@ -374,6 +382,7 @@ end
 
 function InlineHints:onSaveSettings()
     self.ui.doc_settings:saveSetting("wordwise_cefr_enabled", self.overlay_enabled or nil)
+    self.ui.doc_settings:saveSetting("inlinehints_enabled", nil)
 end
 
 function InlineHints:onCloseWidget()
