@@ -60,20 +60,38 @@ function InlineHints:init()
 end
 
 --[[--
-Copies the bundled fallback dictionaries into the reader's dict folder, once.
+Copies the bundled fallback dictionaries into the reader's dict folder.
 
 The two StarDict packs built by tools/build_stardict.py ride along in the
-plugin folder so a fresh install works with no other setup. Only folders not
-already present are copied -- the reader's own dictionaries are never
-touched -- and a settings flag keeps it to a single run. First open moves
-about 10 MB, hence the flag; every later open costs one settings read.
+plugin folder so a fresh install works with no other setup. Folders we
+installed ourselves carry a version marker and get replaced when the plugin
+ships a newer pack -- that's how a rebuilt dictionary reaches the readers
+who installed the older one. Folders without our marker belong to the
+reader and are never touched. First open moves about 10 MB, hence the flag;
+every later open costs one settings read and a marker peek.
 ]]
+local DICT_PACK_VERSION = 2
+local DICT_MARKER = ".wordwise-cefr-dicts"
+
 function InlineHints:installBundledDicts()
     if Settings:readSetting("bundled_dicts_installed") then
         return
     end
     local DataStorage = require("datastorage")
     local lfs = require("libs/libkoreader-lfs")
+
+    local function removeTree(path)
+        if lfs.attributes(path, "mode") == "directory" then
+            for name in lfs.dir(path) do
+                if name:sub(1, 1) ~= "." then
+                    removeTree(path .. "/" .. name)
+                end
+            end
+            lfs.rmdir(path)
+        else
+            os.remove(path)
+        end
+    end
 
     local function copyTree(src, dest)
         lfs.mkdir(dest)
@@ -96,6 +114,21 @@ function InlineHints:installBundledDicts()
                 end
             end
         end
+        local marker = io.open(dest .. "/" .. DICT_MARKER, "w")
+        if marker then
+            marker:write(DICT_PACK_VERSION)
+            marker:close()
+        end
+    end
+
+    local function installedVersion(dest)
+        local marker = io.open(dest .. "/" .. DICT_MARKER, "r")
+        if not marker then
+            return nil -- no marker: the reader's own dictionary, hands off
+        end
+        local version = tonumber(marker:read("*l"))
+        marker:close()
+        return version or 0
     end
 
     local src_root = self.path .. "/dictionaries"
@@ -107,10 +140,16 @@ function InlineHints:installBundledDicts()
         for name in lfs.dir(src_root) do
             local src = src_root .. "/" .. name
             local dest = dest_root .. "/" .. name
-            if name:sub(1, 1) ~= "."
-                and lfs.attributes(src, "mode") == "directory"
-                and not lfs.attributes(dest, "mode") then
-                copyTree(src, dest)
+            if name:sub(1, 1) ~= "." and lfs.attributes(src, "mode") == "directory" then
+                if not lfs.attributes(dest, "mode") then
+                    copyTree(src, dest)
+                else
+                    local version = installedVersion(dest)
+                    if version and version < DICT_PACK_VERSION then
+                        removeTree(dest)
+                        copyTree(src, dest)
+                    end
+                end
             end
         end
     end
