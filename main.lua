@@ -563,7 +563,7 @@ function InlineHints:genKnownWordsMenu()
         list[#list + 1] = word
     end
     table.sort(list)
-    for _, word in ipairs(list) do
+    for _index, word in ipairs(list) do
         items[#items + 1] = {
             text = word,
             callback = function()
@@ -588,7 +588,10 @@ page offers more than the limit, the rarest words win the spots.
 function InlineHints:genMaxHintsMenu()
     local choices = { 5, 10, 15, 20, 30 }
     local items = {}
-    for _, n in ipairs(choices) do
+    -- The loop variable is not '_' on purpose: it would shadow gettext's _,
+    -- and the label below would call the number 5. That crashed the reader
+    -- (10/03 log); upstream left a comment about this very trap elsewhere.
+    for slot, n in ipairs(choices) do
         items[#items + 1] = {
             text = string.format(_("%d hints per page"), n),
             radio = true,
@@ -625,7 +628,7 @@ function InlineHints:genFontSizeMenu()
         [18] = _("Huge (18)"),
     }
     local items = {}
-    for _, size in ipairs(sizes) do
+    for _index, size in ipairs(sizes) do
         items[#items + 1] = {
             text = labels[size],
             radio = true,
@@ -677,7 +680,7 @@ function InlineHints:genHintFontMenu()
     }
     local fonts = FontList:getFontList()
     table.sort(fonts, function(a, b) return a:lower() < b:lower() end)
-    for _, path in ipairs(fonts) do
+    for _index, path in ipairs(fonts) do
         local label = path:match("([^/]+)$") or path
         items[#items + 1] = {
             text = label,

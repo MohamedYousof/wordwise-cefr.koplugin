@@ -51,3 +51,9 @@ check(read("main.lua"):find('doc_settings:saveSetting("wordwise_cefr_enabled"', 
 
 print(fails == 0 and "settings rules verified" or (fails .. " FAILED"))
 os.exit(fails == 0 and 0 or 1)
+
+-- gettext's _ is a function until a loop names its variable '_' -- then the
+-- loop body calls a number, and the reader dies opening the submenu (the
+-- 10/03 crash). This file's siblings may not keep that trap.
+check(not read("main.lua"):find("for _,", 1, true),
+      "loop variables must not shadow gettext's _")
