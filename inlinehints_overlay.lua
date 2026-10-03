@@ -135,6 +135,7 @@ end
 function Overlay:setGlosses(glosses)
     self.glosses = glosses or {}
     self.placed = nil -- recomputed on the next paint, where we know the width
+    self.tap_rects = nil -- and the tap targets go stale with the placement
 end
 
 --[[--
@@ -236,7 +237,7 @@ function Overlay:layout(face, max_x)
             order[#order + 1] = key
         end
         table.insert(lines[key], {
-            text = text, box = g.box, level = g.level,
+            text = text, box = g.box, level = g.level, word = g.word,
             w = w, y_top = y_top,
         })
     end
@@ -252,6 +253,25 @@ function Overlay:layout(face, max_x)
     return placed
 end
 
+--[[--
+The gloss rect containing the screen point, or nil.
+
+Rects are refreshed on every paint: each drawn gloss remembers where it
+sits, so a tap can ask whether it landed on a hint -- and which word that
+hint belongs to.
+]]
+function Overlay:hitTest(px, py)
+    if not self.tap_rects then
+        return nil
+    end
+    for _, r in ipairs(self.tap_rects) do
+        if px >= r.x and px <= r.x + r.w and py >= r.y and py <= r.y + r.h then
+            return r
+        end
+    end
+    return nil
+end
+
 function Overlay:paintTo(bb, x, y)
     if #self.glosses == 0 then
         return
@@ -261,6 +281,7 @@ function Overlay:paintTo(bb, x, y)
     if not self.placed then
         self.placed = self:layout(face, max_x)
     end
+    self.tap_rects = {}
 
     for _, item in ipairs(self.placed) do
         local box = item.box
@@ -273,6 +294,22 @@ function Overlay:paintTo(bb, x, y)
         -- is the bug this replaces.
         local text_top, text_bottom = self:textBand(box)
         local baseline = math.max(text_top - 1, box.y + item.y_top)
+        -- The page's own first line has no leading above it: gloss tops would
+        -- land at the very edge of the screen. Flip those under the word.
+        if baseline - (item.y_top or 0) < box.y + 2 and box.y < 8 then
+            baseline = math.min(text_bottom + (item.y_top or 0) + 1,
+                                box.y + box.h - 1)
+        end
+
+        -- Remember where the drawn gloss sits, so a tap can find it. The
+        -- book's own word travels along: tapping the hint asks about it.
+        self.tap_rects[#self.tap_rects + 1] = {
+            x = x + math.floor(item.x) - 2,
+            y = y + math.floor(baseline) - (item.y_top or 0) - 2,
+            w = item.w + 4,
+            h = (item.y_top or 0) + 8,
+            word = item.word or item.text,
+        }
         -- The page's own first line has no leading above it: gloss tops would
         -- land at the very edge of the screen. Flip those under the word.
         if baseline - (item.y_top or 0) < box.y + 2 and box.y < 8 then

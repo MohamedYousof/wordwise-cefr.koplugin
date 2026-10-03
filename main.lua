@@ -5,6 +5,7 @@ local Overlay = require("inlinehints_overlay")
 local Settings = require("inlinehints_settings")
 local Trapper = require("ui/trapper")
 local InputDialog = require("ui/widget/inputdialog")
+local ConfirmBox = require("ui/widget/confirmbox")
 local UIManager = require("ui/uimanager")
 local WidgetContainer = require("ui/widget/container/widgetcontainer")
 local Diagnostics = require("inlinehints_diagnostics")
@@ -195,11 +196,57 @@ function InlineHints:onReaderReady()
     self.overlay = Overlay:new{}
     self.ui.view:registerViewModule("inlinehints", self.overlay)
     self:addSelectionButton()
+    self:registerHintTapZone()
     -- The record of which words appear in lower case is about this book's prose,
     -- so it must not carry over: one book's character names would license
     -- hinting the same words in the next. Keyed by file, so reopening this book
     -- -- or toggling hints, which reloads it -- keeps what we already know.
     Engine.resetCensus(self.ui.document.file)
+end
+
+--[[--
+Taps on a drawn hint belong to us, not to the page turn.
+
+Registered as a full-screen tap zone after the paging zones: the handler
+returns true only when a gloss was hit, so every other tap still flips the
+page exactly as before.
+]]
+function InlineHints:registerHintTapZone()
+    self.ui:registerTouchZones({
+        {
+            id = "wordwise_hint_tap",
+            ges = "tap",
+            screen_zone = { ratio_x = 0, ratio_y = 0, ratio_w = 1, ratio_h = 1 },
+            handler = function(ges)
+                return self:onHintTap(ges)
+            end,
+        },
+    })
+end
+
+function InlineHints:onHintTap(ges)
+    local pos = ges and ges.pos
+    if not pos or not self.overlay then
+        return false
+    end
+    local rect = self.overlay:hitTest(pos.x, pos.y)
+    if not rect then
+        return false
+    end
+    UIManager:show(ConfirmBox:new{
+        text = T(_("“%1” — mark as known?"), rect.word),
+        ok_text = _("Mark known"),
+        ok_callback = function()
+            local added = self:markKnown(rect.word)
+            if #added > 0 then
+                UIManager:show(InfoMessage:new{
+                    text = T(_("Marked known — %1"), table.concat(added, ", ")),
+                    timeout = 3,
+                })
+            end
+        end,
+    })
+    return true
 end
 
 --[[--

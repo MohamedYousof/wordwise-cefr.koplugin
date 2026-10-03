@@ -16,10 +16,10 @@ A fork of [omer-faruq's Inline Hints](https://github.com/omer-faruq/inlinehints.
 - **Max hints per page** (5–30) — when a page offers more worthy words than
   the limit, the rarest win the spots.
 - **Known words** — type a word in and it is never hinted again, in any
-  form; tap it in the list to forget it. Or select a word in the book and
-  tap **Mark known** in the popup: the base form and its packed variants
-  come along (marking *kidnapped* silences *kidnap*, *kidnapper* and
-  *kidnappers*).
+  form; tap it in the list to forget it. **Or tap the hint itself**: a
+  popup asks *"mark as known?"* — accept and the whole family goes
+  (*kidnapped* takes *kidnap*, *kidnapper*, *kidnappers* along). You can
+  also drag-select a word and use **Mark known** in the selection popup.
 
 Coming from the original Inline Hints? Your settings migrate on first run, and
 books you enabled there come back enabled (see Installing).
