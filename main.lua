@@ -4,6 +4,7 @@ local InfoMessage = require("ui/widget/infomessage")
 local Overlay = require("inlinehints_overlay")
 local Settings = require("inlinehints_settings")
 local Trapper = require("ui/trapper")
+local InputDialog = require("ui/widget/inputdialog")
 local UIManager = require("ui/uimanager")
 local WidgetContainer = require("ui/widget/container/widgetcontainer")
 local Diagnostics = require("inlinehints_diagnostics")
@@ -518,8 +519,6 @@ list to forget one, or types a word in directly. Ten seconds of typing saves
 a book's worth of nuisance.
 ]]
 function InlineHints:genKnownWordsMenu()
-    local UIManager = require("uimanager")
-    local InputDialog = require("ui/widget/inputdialog")
     local words = self:getKnownWords()
 
     local items = {
