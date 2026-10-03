@@ -194,11 +194,100 @@ end
 function InlineHints:onReaderReady()
     self.overlay = Overlay:new{}
     self.ui.view:registerViewModule("inlinehints", self.overlay)
+    self:addSelectionButton()
     -- The record of which words appear in lower case is about this book's prose,
     -- so it must not carry over: one book's character names would license
     -- hinting the same words in the next. Keyed by file, so reopening this book
     -- -- or toggling hints, which reloads it -- keeps what we already know.
     Engine.resetCensus(self.ui.document.file)
+end
+
+--[[--
+Adds a button to the text-selection popup: mark the picked word known.
+
+The button shows only for single-word selections, and "known" stretches:
+the selected form, its base form in the pack, and packed variants of that
+base -- marking "kidnapped" also silences "kidnap", "kidnapper" and
+"kidnappers". Words the pack doesn't know are still silenced by their
+surface form, so a selection always does something.
+]]
+function InlineHints:addSelectionButton()
+    if not (self.ui.highlight and self.ui.highlight.addToHighlightDialog) then
+        return
+    end
+    self.ui.highlight:addToHighlightDialog("12_wordwise_known", function(this)
+        return {
+            text = _("Mark known"),
+            show_in_highlight_dialog_func = function()
+                local text = this.selected_text and this.selected_text.text or ""
+                return text ~= "" and not text:find("[ ,;:%.\n]")
+            end,
+            callback = function()
+                local added = self:markKnown(this.selected_text.text)
+                this:onClose()
+                if #added > 0 then
+                    UIManager:show(InfoMessage:new{
+                        text = T(_("WordWise: marked known — %1"), table.concat(added, ", ")),
+                        timeout = 3,
+                    })
+                end
+            end,
+        }
+    end)
+end
+
+--[[--
+Marks a selected word known and returns the words that were added.
+
+The selection is one word (the button hides itself for phrases). "Known"
+stretches: the selected form, its base form in the pack, and packed variants
+of that base -- marking "kidnapped" also silences "kidnap", "kidnapper" and
+"kidnappers". A selection the pack doesn't know is still silenced by its
+surface form, so the tap always does something.
+]]
+function InlineHints:markKnown(raw)
+    local word = (raw or ""):lower():match("^([^ ,;:%.\n]+)")
+    if not word or word == "" then
+        return {}
+    end
+    local base = Engine.resolveLemma(word) or word
+    local words = self:getKnownWords()
+    if words[base] or words[word] then
+        return {} -- already known; every packed form of it is covered
+    end
+    local added = {}
+    local function add(w)
+        if w and w ~= "" and not words[w] then
+            words[w] = true
+            added[#added + 1] = w
+        end
+    end
+    add(word)
+    add(base)
+    for _index, suffix in ipairs({ "s", "es", "ed", "d", "ing", "er", "ers" }) do
+        -- English doubles the last consonant before some of these endings
+        -- (kidnap -> kidnapper), so try the doubled spelling too.
+        local variants = { base .. suffix }
+        local last = base:sub(-1)
+        if last:match("[bcdfgklmnprstvz]") then
+            variants[#variants + 1] = base .. last .. suffix
+        end
+        for _index2, variant in ipairs(variants) do
+            -- Only heads that exist in the pack and aren't the base itself:
+            -- "kidnapper" qualifies, "kidnaps" (already covered by "kidnap") doesn't.
+            local variant_lemma = Engine.resolveLemma(variant)
+            if variant_lemma and variant_lemma ~= base then
+                add(variant_lemma)
+            end
+        end
+    end
+    if #added > 0 then
+        Settings:saveSetting("known_words", words)
+        Settings:flush()
+        Engine.setKnownWords(words)
+        self:invalidateGlosses()
+    end
+    return added
 end
 
 --[[--

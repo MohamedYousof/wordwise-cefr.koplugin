@@ -7,5 +7,5 @@ return {
 Which words get a hint depends on YOUR English level: pick CEFR A1-C2 and a word is explained when its learner level is above yours (real CEFR-J/Octanove data, not a frequency guess). You choose the hint font and size, how long the hints are, and which dictionaries they come from -- two fallback dictionaries (English-Arabic and English definitions) are bundled and installed for you.
 
 A fork of omer-faruq's Inline Hints; Arabic and other right-to-left hints are properly shaped and ordered.]]),
-    version = "1.4.2",
+    version = "1.5.0",
 }

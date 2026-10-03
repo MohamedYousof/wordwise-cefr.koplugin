@@ -214,6 +214,20 @@ function Engine.hasWordPack()
 end
 
 --[[--
+The lemma a surface form resolves to in the language pack, or nil.
+
+Used when marking a word known: silencing the base form silences every
+packed form of it, since the pack's own form table maps them back here.
+]]
+function Engine.resolveLemma(surface)
+    if not word_pack then
+        return nil
+    end
+    local lemma = word_pack:lookup(surface)
+    return lemma
+end
+
+--[[--
 Releases the databases.
 
 Both are deliberately kept open across documents -- neither the language pack
