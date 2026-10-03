@@ -55,6 +55,7 @@ for _, name in ipairs({
     "resolveBoxes", "hasWordPack", "resetCensus", "setCefrLevel",
     "shouldHint", "setPluginPath", "closeDatabases",
     "DEFAULT_CEFR", "CEFR_RANK",
+    "setMaxHints", "prioritize", "DEFAULT_MAX_HINTS", "setKnownWords",
 }) do
     check(Engine[name] ~= nil, "engine exports " .. name)
 end

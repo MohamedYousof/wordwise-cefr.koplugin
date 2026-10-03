@@ -90,7 +90,24 @@ check(not hinted("was", nil, nil), "untagged unranked word hidden")
 -- untagged pack vocabulary, under the same rarity floor as any untagged word.
 check(not hinted("house", 0, "zz"), "unknown tag: band-0 word under B1 floor")
 check(hinted("abate", 1, "zz"), "unknown tag: band-1 word passes the B1 floor")
+-- Unknown tag and no rarity: no hint
 check(not hinted("house", nil, "zz"), "unknown tag and no rarity: no hint")
+
+-- Prioritize: the page-cap keeps the rarest words, in page order.
+Engine.setKnownWords({})
+local page = {}
+for _, pair in ipairs({ { "aaa", 1, 100 }, { "bbb", 5, 200 }, { "ccc", 3, 300 }, { "ddd", 5, 400 } }) do
+    page[#page + 1] = { text = pair[1], level = pair[2], ws = pair[3] }
+end
+local kept = Engine.prioritize(page, 3)
+check(#kept == 3, "cap keeps limit words")
+check(kept[1].text == "bbb" and kept[2].text == "ddd", "rarest kept first (tie: page order)")
+check(kept[3].text == "ccc", "next-rarest kept")
+-- A known word is never hinted, in any form.
+Engine.setCefrLevel("C2")
+Engine.setKnownWords({ kidnap = true })
+check(not hinted("kidnap", nil, nil), "known lemma: no hint")
+check(not hinted("kidnapped", nil, nil), "known lemma via surface form: no hint")
 
 print(fails == 0 and "cefr selection verified" or (fails .. " FAILED"))
 os.exit(fails == 0 and 0 or 1)

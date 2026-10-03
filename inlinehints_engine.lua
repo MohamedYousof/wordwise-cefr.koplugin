@@ -62,6 +62,49 @@ function Engine.shouldHint(lemma, level, cefr)
     return level ~= nil and level >= cefr_rank - 2
 end
 
+-- Max hints on one page. A dense legal page can carry dozens of candidates;
+-- past a handful they fight for space and the page turns into confetti.
+Engine.DEFAULT_MAX_HINTS = 15
+Engine.MAX_HINTS = Engine.DEFAULT_MAX_HINTS
+
+function Engine.setMaxHints(n)
+    Engine.MAX_HINTS = n or Engine.DEFAULT_MAX_HINTS
+end
+
+--[[--
+Keeps the `limit` rarest candidates, in page order.
+
+When a page offers more worthy words than the reader wants hints, the rarest
+win the spots -- "propensity" is the plain one, the harder word is the one
+that needed explaining. Words with a CEFR tag but no corpus rank sort as the
+rarest: the learner lists are the better evidence.
+]]
+function Engine.prioritize(candidates, limit)
+    limit = limit or Engine.MAX_HINTS
+    local sorted = {}
+    for i, candidate in ipairs(candidates) do
+        sorted[i] = candidate
+    end
+    table.sort(sorted, function(a, b)
+        local la, lb = a.level or 6, b.level or 6
+        if la ~= lb then
+            return la > lb
+        end
+        return (a.ws or 0) < (b.ws or 0)
+    end)
+    for i = #sorted, limit + 1, -1 do
+        sorted[i] = nil
+    end
+    return sorted
+end
+
+-- Words the reader marked as known: never hinted again, in any form.
+Engine.known_words = nil
+
+function Engine.setKnownWords(words)
+    Engine.known_words = words
+end
+
 -- The engine splits "I'm" into "I" and "m", and ECDICT has an entry for "m",
 -- so a stray letter picked up a gloss of its own ("'m (am)") on the page.
 -- Nothing under three letters is worth glossing anyway: two-letter words are
@@ -367,6 +410,11 @@ function Engine.selectCandidates(doc, words, dropped_names)
             if pack then
                 lemma, level, cefr = pack:lookup(text)
                 keep = Engine.shouldHint(lemma, level, cefr)
+                -- A word the reader marked known is known in all its forms.
+                if keep and Engine.known_words and
+                    (Engine.known_words[lemma] or Engine.known_words[text]) then
+                    keep = false
+                end
             else
                 lemma, keep = text, #text >= 7
             end
@@ -435,7 +483,7 @@ function Engine.preparePage(ui, page, dict_names)
     if not words then
         return nil
     end
-    local candidates = Engine.selectCandidates(doc, words)
+    local candidates = Engine.prioritize(Engine.selectCandidates(doc, words))
     if #candidates == 0 then
         return { page = page, items = {} }
     end

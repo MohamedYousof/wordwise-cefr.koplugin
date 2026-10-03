@@ -207,12 +207,28 @@ function Overlay:layout(face, max_x)
     local lines, order = {}, {}
     for _, g in ipairs(self.glosses) do
         local shaped = self:shapeText(face, g.text)
-        local w, y_top
+        local w, y_top, text = nil, nil, g.text
         if shaped then
             w, y_top = shaped.width, shaped.y_top
         else
             local size = RenderText:sizeUtf8Text(0, max_x, face, g.text, true, false)
             w, y_top = size.x, size.y_top
+        end
+        if w > max_x then
+            -- A gloss wider than the page says nothing by being dropped
+            -- whole: keep as much as fits and say it was cut.
+            local truncated = RenderText:truncateTextByWidth(g.text, face,
+                max_x - Size.span.horizontal_small * 2, true, false)
+            if truncated and #truncated > 1 and truncated ~= g.text then
+                text = truncated .. "…"
+                shaped = self:shapeText(face, text)
+                if shaped then
+                    w, y_top = shaped.width, shaped.y_top
+                else
+                    local size = RenderText:sizeUtf8Text(0, max_x, face, text, true, false)
+                    w, y_top = size.x, size.y_top
+                end
+            end
         end
         local key = g.box.y
         if not lines[key] then
@@ -220,7 +236,7 @@ function Overlay:layout(face, max_x)
             order[#order + 1] = key
         end
         table.insert(lines[key], {
-            text = g.text, box = g.box, level = g.level,
+            text = text, box = g.box, level = g.level,
             w = w, y_top = y_top,
         })
     end
@@ -257,6 +273,12 @@ function Overlay:paintTo(bb, x, y)
         -- is the bug this replaces.
         local text_top, text_bottom = self:textBand(box)
         local baseline = math.max(text_top - 1, box.y + item.y_top)
+        -- The page's own first line has no leading above it: gloss tops would
+        -- land at the very edge of the screen. Flip those under the word.
+        if baseline - (item.y_top or 0) < box.y + 2 and box.y < 8 then
+            baseline = math.min(text_bottom + (item.y_top or 0) + 1,
+                                box.y + box.h - 1)
+        end
 
         -- Integers only. These end up as coordinates in the C blitter, and the
         -- centring above produces fractions.

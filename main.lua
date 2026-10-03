@@ -54,6 +54,8 @@ function InlineHints:init()
     -- next to this file, and submodules have no other way to find it.
     Engine.setPluginPath(self.path)
     Engine.setCefrLevel(Settings:readSetting("cefr"))
+    Engine.setMaxHints(Settings:readSetting("max_hints"))
+    Engine.setKnownWords(Settings:readSetting("known_words") or {})
     Gloss.setMaxTerms(Settings:readSetting("max_terms"))
     self:installBundledDicts()
     self.ui.menu:registerToMainMenu(self)
@@ -498,6 +500,113 @@ function InlineHints:getHintFont()
     return Settings:readSetting("hint_font") -- nil = KOReader's UI font
 end
 
+function InlineHints:getKnownWords()
+    local words = Settings:readSetting("known_words")
+    if not words then
+        words = {}
+        Settings:saveSetting("known_words", words)
+        Settings:flush()
+    end
+    return words
+end
+
+--[[--
+Builds the known-words manager.
+
+A known word is never hinted again, in any form: the reader taps through the
+list to forget one, or types a word in directly. Ten seconds of typing saves
+a book's worth of nuisance.
+]]
+function InlineHints:genKnownWordsMenu()
+    local UIManager = require("uimanager")
+    local InputDialog = require("ui/widget/inputdialog")
+    local words = self:getKnownWords()
+
+    local items = {
+        {
+            text = _("Add a known word…"),
+            callback = function()
+                local dialog
+                dialog = InputDialog:new{
+                    title = _("Add a known word"),
+                    input_type = "text",
+                    buttons = {{
+                        {
+                            text = _("Cancel"),
+                            callback = function() UIManager:close(dialog) end,
+                        },
+                        {
+                            text = _("Add"),
+                            is_enter_default = true,
+                            callback = function()
+                                local word = dialog:getInputText():lower()
+                                if word ~= "" then
+                                    words[word] = true
+                                    Settings:saveSetting("known_words", words)
+                                    Settings:flush()
+                                    Engine.setKnownWords(words)
+                                    self:invalidateGlosses()
+                                end
+                                UIManager:close(dialog)
+                            end,
+                        },
+                    }},
+                }
+                UIManager:show(dialog)
+            end,
+            separator = true,
+        },
+    }
+
+    local list = {}
+    for word in pairs(words) do
+        list[#list + 1] = word
+    end
+    table.sort(list)
+    for _, word in ipairs(list) do
+        items[#items + 1] = {
+            text = word,
+            callback = function()
+                words[word] = nil
+                Settings:saveSetting("known_words", words)
+                Settings:flush()
+                Engine.setKnownWords(words)
+                self:invalidateGlosses()
+            end,
+        }
+    end
+    return items
+end
+
+--[[--
+Builds the per-page hint limit chooser.
+
+Dense pages can offer more worthy words than anyone wants floating over the
+text; past a handful the hints stop being aids and become weather. When the
+page offers more than the limit, the rarest words win the spots.
+]]
+function InlineHints:genMaxHintsMenu()
+    local choices = { 5, 10, 15, 20, 30 }
+    local items = {}
+    for _, n in ipairs(choices) do
+        items[#items + 1] = {
+            text = string.format(_("%d hints per page"), n),
+            radio = true,
+            checked_func = function()
+                return (Settings:readSetting("max_hints")
+                        or Engine.DEFAULT_MAX_HINTS) == n
+            end,
+            callback = function()
+                Settings:saveSetting("max_hints", n)
+                Settings:flush()
+                Engine.setMaxHints(n)
+                self:invalidateGlosses()
+            end,
+        }
+    end
+    return items
+end
+
 --[[--
 Builds the hint text size chooser.
 
@@ -765,6 +874,14 @@ function InlineHints:addToMainMenu(menu_items)
                     {
                         text = _("How long a hint may be"),
                         sub_item_table_func = function() return self:genLengthMenu() end,
+                    },
+                    {
+                        text = _("Max hints per page"),
+                        sub_item_table_func = function() return self:genMaxHintsMenu() end,
+                    },
+                    {
+                        text = _("Known words"),
+                        sub_item_table_func = function() return self:genKnownWordsMenu() end,
                     },
                     {
                         text = _("Hint text size"),

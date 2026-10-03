@@ -13,6 +13,10 @@ A fork of [omer-faruq's Inline Hints](https://github.com/omer-faruq/inlinehints.
   CC BY 4.0) — copied into `koreader/data/dict/` on first open.
 - **Proper Arabic (RTL) hints** — glosses are shaped with the reader's own
   HarfBuzz/FriBidi engine instead of painted as isolated letters.
+- **Max hints per page** (5–30) — when a page offers more worthy words than
+  the limit, the rarest win the spots.
+- **Known words** — type a word in and it is never hinted again, in any
+  form; tap it in the list to forget it.
 
 Coming from the original Inline Hints? Your settings migrate on first run, and
 books you enabled there come back enabled (see Installing).
