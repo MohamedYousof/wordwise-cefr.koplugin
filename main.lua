@@ -215,6 +215,7 @@ function InlineHints:addSelectionButton()
     if not (self.ui.highlight and self.ui.highlight.addToHighlightDialog) then
         return
     end
+    logger.info("WordWise: registering Mark-known selection button")
     self.ui.highlight:addToHighlightDialog("12_wordwise_known", function(this)
         return {
             text = _("Mark known"),
@@ -223,6 +224,7 @@ function InlineHints:addSelectionButton()
                 return text ~= "" and not text:find("[ ,;:%.\n]")
             end,
             callback = function()
+                logger.info("WordWise: Mark-known tapped for:", this.selected_text.text)
                 local added = self:markKnown(this.selected_text.text)
                 this:onClose()
                 if #added > 0 then
