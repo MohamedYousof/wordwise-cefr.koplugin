@@ -212,11 +212,29 @@ returns true only when a gloss was hit, so every other tap still flips the
 page exactly as before.
 ]]
 function InlineHints:registerHintTapZone()
+    -- The overrides list is what makes the zone win: without it, the paging
+    -- taps registered earlier in the reader eat every tap first (that was
+    -- exactly why hints were not clickable). The handler still falls through
+    -- (returns false) for taps that miss a gloss, so page turns survive.
     self.ui:registerTouchZones({
         {
             id = "wordwise_hint_tap",
             ges = "tap",
             screen_zone = { ratio_x = 0, ratio_y = 0, ratio_w = 1, ratio_h = 1 },
+            overrides = {
+                "readerhighlight_tap",
+                "tap_top_left_corner",
+                "tap_top_right_corner",
+                "tap_left_bottom_corner",
+                "tap_right_bottom_corner",
+                "readerfooter_tap",
+                "readerconfigmenu_ext_tap",
+                "readerconfigmenu_tap",
+                "readermenu_ext_tap",
+                "readermenu_tap",
+                "tap_forward",
+                "tap_backward",
+            },
             handler = function(ges)
                 return self:onHintTap(ges)
             end,
@@ -225,14 +243,19 @@ function InlineHints:registerHintTapZone()
 end
 
 function InlineHints:onHintTap(ges)
+    if not self.overlay_enabled then
+        return false -- hints off: nothing of ours to tap
+    end
     local pos = ges and ges.pos
     if not pos or not self.overlay then
         return false
     end
     local rect = self.overlay:hitTest(pos.x, pos.y)
     if not rect then
+        logger.info("WordWise: tap missed a hint at", pos.x, pos.y)
         return false
     end
+    logger.info("WordWise: tap on hint for '", rect.word, "'")
     UIManager:show(ConfirmBox:new{
         text = T(_("“%1” — mark as known?"), rect.word),
         ok_text = _("Mark known"),
